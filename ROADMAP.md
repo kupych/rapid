@@ -1,0 +1,38 @@
+- [x] Initialization #v0.0.1
+- [x] GET request stub #v0.0.2
+- [ ] Print response body (raw text)
+- [ ] Pretty-print JSON responses
+- [ ] Show request timing (ms)
+- [ ] `$` to view last response
+- [ ] `?` help command
+- [ ] `!!` repeat last command
+- [ ] POST with JSON body: `p(/login {username:"admin"})`
+- [ ] POST with text body: `p(/webhook "message")`
+- [ ] POST with form data: `p(/form username=admin&password=pass)`
+- [ ] Variable extraction: `{token} = p(/login ...)`
+- [ ] Template interpolation: `g(/users/${userId})`
+- [ ] Auto auth injection (Bearer token)
+- [ ] PUT/PATCH/DELETE commands: `pu()`, `pa()`, `d()`
+- [ ] `Ctrl+` commands
+- [ ] Color output (green for 2xx, red for errors)
+- [ ] Request counter in session
+- [ ] Shell-style history (up arrow)
+- [ ] `?s` session info command
+- [ ] `?h` history command
+- [ ] `?v` variables command
+- [ ] Response history: `$1`, `$2`, etc.
+- [ ] Query params: `g(/users?limit=10&offset=20)`
+- [ ] Custom headers: `g(/api -H "X-Custom: value")`
+- [ ] OpenAPI spec auto-discovery
+- [ ] Endpoint autocomplete from spec
+- [ ] Fuzzy endpoint search
+- [ ] Ghost text/inline suggestions
+- [ ] Syntax highlighting
+- [ ] Response metadata: `$$.status`, `$$.headers`, `$$.time`
+- [ ] GraphQL support: `gql { user(id:123) { name } }`
+- [ ] OData support for D365 APIs
+- [ ] Save/load sessions
+- [ ] Export session to curl/script
+- [ ] Config file support
+- [ ] Response filters/transformations
+- [ ] Pipe to jq: `$ | .data[0]`
