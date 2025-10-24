@@ -1,7 +1,7 @@
 - [x] Initialization #v0.0.1
 - [x] GET request stub #v0.0.2
-- [ ] Print response body (raw text)
-- [ ] Pretty-print JSON responses
+- [x] Print response body (raw text)
+- [x] Pretty-print JSON responses #v0.0.3
 - [ ] Show request timing (ms)
 - [ ] `$` to view last response
 - [ ] `?` help command

@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -10,7 +12,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("RAPID v0.0.1 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.0.3 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. Real functionality coming soon.")
@@ -20,10 +22,10 @@ func main() {
 
 	baseURL := os.Args[1]
 	fmt.Printf("RAPID connected to %s\n", baseURL)
-	fmt.Println("v0.0.1: No commands yet. Stay tuned.")
 	fmt.Println()
 
 	reader := bufio.NewReader(os.Stdin)
+
 	for {
 		fmt.Print("> ")
 		input, _ := reader.ReadString('\n')
@@ -36,16 +38,29 @@ func main() {
 			url := buildURL(baseURL, path)
 			resp, err := http.Get(url)
 			if err != nil {
-				fmt.Println("Error: ", err)
+				fmt.Println("Could not complete request: ", err)
 				continue
 			}
 			defer resp.Body.Close()
 
-			fmt.Println("Response: ", resp.StatusCode)
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				fmt.Println("Could not parse response body: ", err)
+				continue
+
+			}
+		fmt.Printf("✓ %d %s\n", resp.StatusCode, http.StatusText(resp.StatusCode))
+
+		var data interface{}
+		if err := json.Unmarshal(body, &data); err != nil {
+			fmt.Println(string(body))
 		} else {
-			fmt.Println("Coming soon. Check Github for updates.")
-		}
+			pretty, _ := json.MarshalIndent(data, "", " ")
+			fmt.Println(string(pretty))
+
+		}     
 	}
+}
 }
 
 func buildURL(baseURL, path string) string {
@@ -57,3 +72,4 @@ func buildURL(baseURL, path string) string {
 
 	return baseURL + path
 }
+
