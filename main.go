@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 )
@@ -28,12 +29,31 @@ func main() {
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
 
-		if input == "exit" || input == "quit" {
-			fmt.Println("Bye")
-			break
-		}
+		if input == "exit" || input == "quit" { break }
 
-		fmt.Println("Coming soon. Check Github for updates.")
+		if strings.HasPrefix(input, "g(") {
+			path := strings.TrimSuffix(strings.TrimPrefix(input, "g("), ")")
+			url := buildURL(baseURL, path)
+			resp, err := http.Get(url)
+			if err != nil {
+				fmt.Println("Error: ", err)
+				continue
+			}
+			defer resp.Body.Close()
+
+			fmt.Println("Response: ", resp.StatusCode)
+		} else {
+			fmt.Println("Coming soon. Check Github for updates.")
+		}
 	}
 }
 
+func buildURL(baseURL, path string) string {
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	return baseURL + path
+}
