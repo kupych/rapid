@@ -2,9 +2,9 @@
 - [x] GET request stub #v0.0.2
 - [x] Print response body (raw text)
 - [x] Pretty-print JSON responses #v0.0.3
-- [ ] Show request timing (ms)
-- [ ] `$` to view last response
-- [ ] `?` help command
+- [x] `$` to view last response
+- [x] `?` help command
+- [x] Show request timing (ms) #v0.0.4
 - [ ] `!!` repeat last command
 - [ ] POST with JSON body: `p(/login {username:"admin"})`
 - [ ] POST with text body: `p(/webhook "message")`
@@ -36,3 +36,4 @@
 - [ ] Config file support
 - [ ] Response filters/transformations
 - [ ] Pipe to jq: `$ | .data[0]`
+- [ ] Self-documenting commands
