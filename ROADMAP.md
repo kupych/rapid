@@ -16,6 +16,7 @@
 - [ ] `Ctrl+` commands
 - [ ] Color output (green for 2xx, red for errors)
 - [ ] Request counter in session
+- [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
 - [ ] Shell-style history (up arrow)
 - [ ] `?s` session info command
 - [ ] `?h` history command
@@ -37,3 +38,4 @@
 - [ ] Response filters/transformations
 - [ ] Pipe to jq: `$ | .data[0]`
 - [ ] Self-documenting commands
+- [ ] Demo site showing off keypresses
