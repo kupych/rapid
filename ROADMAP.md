@@ -5,8 +5,8 @@
 - [x] `$` to view last response
 - [x] `?` help command
 - [x] Show request timing (ms) #v0.0.4
+- [x] POST with JSON body: `p(/login{username:admin})` #v0.0.5
 - [ ] `!!` repeat last command
-- [ ] POST with JSON body: `p(/login {username:"admin"})`
 - [ ] POST with text body: `p(/webhook "message")`
 - [ ] POST with form data: `p(/form username=admin&password=pass)`
 - [ ] Variable extraction: `{token} = p(/login ...)`
@@ -39,3 +39,4 @@
 - [ ] Pipe to jq: `$ | .data[0]`
 - [ ] Self-documenting commands
 - [ ] Demo site showing off keypresses
+- [ ] Type inference for request body?
