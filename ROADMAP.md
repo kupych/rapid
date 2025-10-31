@@ -6,18 +6,18 @@
 - [x] `?` help command
 - [x] Show request timing (ms) #v0.0.4
 - [x] POST with JSON body: `p(/login{username:admin})` #v0.0.5
+- [x] PUT/PATCH/DELETE commands: `pu()`, `pa()`, `d()`
+- [x] Shell-style history (up arrow) #v0.0.6
 - [ ] `!!` repeat last command
 - [ ] POST with text body: `p(/webhook "message")`
 - [ ] POST with form data: `p(/form username=admin&password=pass)`
 - [ ] Variable extraction: `{token} = p(/login ...)`
 - [ ] Template interpolation: `g(/users/${userId})`
 - [ ] Auto auth injection (Bearer token)
-- [ ] PUT/PATCH/DELETE commands: `pu()`, `pa()`, `d()`
 - [ ] `Ctrl+` commands
 - [ ] Color output (green for 2xx, red for errors)
 - [ ] Request counter in session
 - [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
-- [ ] Shell-style history (up arrow)
 - [ ] `?s` session info command
 - [ ] `?h` history command
 - [ ] `?v` variables command
