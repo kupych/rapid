@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/chzyer/readline"
 	"io"
 	"net/http"
 	"os"
@@ -14,10 +14,10 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("RAPID v0.0.4 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.0.6 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid <base-url>")
 		fmt.Println()
-		fmt.Println("Warning: this is a WIP. Real functionality coming soon.")
+		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
 		fmt.Println("Star: https://github.com/kupych/rapid")
 		return
 	}
@@ -28,16 +28,21 @@ func main() {
 	fmt.Printf("RAPID connected to %s\n", baseURL)
 	fmt.Println()
 
-	reader := bufio.NewReader(os.Stdin)
+	rl, err := readline.New("> ")
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer rl.Close()
 
 	for {
-		fmt.Print("> ")
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-
-		if input == "exit" || input == "quit" {
+		input, err := rl.Readline()
+		if err != nil {
 			break
 		}
+
+		input = strings.TrimSpace(input)
 
 		switch {
 		case input == "exit" || input == "quit":
@@ -48,72 +53,47 @@ func main() {
 			fmt.Println(lastResponse)
 		case strings.HasPrefix(input, "g("):
 			path := strings.TrimSuffix(strings.TrimPrefix(input, "g("), ")")
-			url := buildURL(baseURL, path)
-			start := time.Now()
-			resp, err := http.Get(url)
-			elapsed := time.Since(start)
-			if err != nil {
-				fmt.Println("Could not complete request: ", err)
-				continue
-			}
-			defer resp.Body.Close()
+			makeRequest("GET", buildURL(baseURL, path), "", &lastResponse)
 
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				fmt.Println("Could not parse response body: ", err)
-				continue
-
-			}
-			fmt.Printf("✓ %d %s (%dms)\n", resp.StatusCode, http.StatusText(resp.StatusCode), elapsed.Milliseconds())
-
-			var data interface{}
-			if err := json.Unmarshal(body, &data); err != nil {
-				fmt.Println(string(body))
-			} else {
-				pretty, _ := json.MarshalIndent(data, "", " ")
-				fmt.Println(string(pretty))
-				lastResponse = string(pretty)
-			}
 		case strings.HasPrefix(input, "p("):
 			pattern := `p\(([^{]+)\s*(\{[^}]+\})\)`
 			re := regexp.MustCompile(pattern)
 			matches := re.FindStringSubmatch(input)
-			fmt.Println(matches)
-
 			if len(matches) != 3 {
-				fmt.Println("? ... p(path){body}")
+				fmt.Println("? ... p(/path {key:val})")
 				continue
 			}
-				path := matches[1]
-				reqBody := parseCJSON(matches[2])
+			path := strings.TrimSpace(matches[1])
+			requestBody := parseCJSON(matches[2])
+			makeRequest("POST", buildURL(baseURL, path), requestBody, &lastResponse)
 
-				url := buildURL(baseURL, path)
-				start := time.Now()
-				resp, err := http.Post(url, "application/json", strings.NewReader(reqBody))
-				elapsed := time.Since(start)
-				if err != nil {
-					fmt.Println("Could not complete request: ", err)
-					continue
-				}
-
-			defer resp.Body.Close()
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				fmt.Println("Could not parse response body: ", err)
+		case strings.HasPrefix(input, "pu("):
+			pattern := `pu\(([^{]+)\s*(\{[^}]+\})\)`
+			re := regexp.MustCompile(pattern)
+			matches := re.FindStringSubmatch(input)
+			if len(matches) != 3 {
+				fmt.Println("? ... pu(/path {key:val})")
 				continue
-
 			}
-			fmt.Printf("✓ %d %s (%dms)\n", resp.StatusCode, http.StatusText(resp.StatusCode), elapsed.Milliseconds())
+			path := strings.TrimSpace(matches[1])
+			requestBody := parseCJSON(matches[2])
+			makeRequest("PUT", buildURL(baseURL, path), requestBody, &lastResponse)
 
-			var data interface{}
-			if err := json.Unmarshal(body, &data); err != nil {
-				fmt.Println(string(body))
-			} else {
-				pretty, _ := json.MarshalIndent(data, "", " ")
-				fmt.Println(string(pretty))
-				lastResponse = string(pretty)
+		case strings.HasPrefix(input, "pa("):
+			pattern := `pa\(([^{]+)\s*(\{[^}]+\})\)`
+			re := regexp.MustCompile(pattern)
+			matches := re.FindStringSubmatch(input)
+			if len(matches) != 3 {
+				fmt.Println("? ... pa(/path {key:val})")
+				continue
 			}
+			path := strings.TrimSpace(matches[1])
+			requestBody := parseCJSON(matches[2])
+			makeRequest("PATCH", buildURL(baseURL, path), requestBody, &lastResponse)
+
+		case strings.HasPrefix(input, "d("):
+			path := strings.TrimSuffix(strings.TrimPrefix(input, "d("), ")")
+			makeRequest("DELETE", buildURL(baseURL, path), "", &lastResponse)
 		default:
 			fmt.Println("?")
 		}
@@ -164,4 +144,49 @@ func parseCJSON(condensed string) string {
 
 	jsonBytes, _ := json.Marshal(body)
 	return string(jsonBytes)
+}
+
+func makeRequest(method, url, reqBody string, lastResponse *string) {
+	var body io.Reader
+	if reqBody != "" {
+		body = strings.NewReader(reqBody)
+	}
+
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		fmt.Println("X", err)
+		return
+	}
+
+	if reqBody != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	start := time.Now()
+	resp, err := http.DefaultClient.Do(req)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		fmt.Println("X", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Could not parse response body: ", err)
+		return
+
+	}
+	fmt.Printf("✓ %d %s (%dms)\n", resp.StatusCode, http.StatusText(resp.StatusCode), elapsed.Milliseconds())
+
+	var data interface{}
+	if err := json.Unmarshal(respBody, &data); err != nil {
+		fmt.Println(string(respBody))
+	} else {
+		pretty, _ := json.MarshalIndent(data, "", " ")
+		fmt.Println(string(pretty))
+		*lastResponse = string(pretty)
+	}
+
 }
