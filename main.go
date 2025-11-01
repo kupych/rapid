@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/chzyer/readline"
+	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
 	"os"
@@ -13,6 +14,8 @@ import (
 )
 
 func main() {
+	variables := make(map[string]interface{})
+
 	if len(os.Args) < 2 {
 		fmt.Println("RAPID v0.0.6 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid <base-url>")
@@ -25,6 +28,7 @@ func main() {
 	lastResponse := ""
 
 	baseURL := os.Args[1]
+	baseURL = detectScheme(baseURL)
 	fmt.Printf("RAPID connected to %s\n", baseURL)
 	fmt.Println()
 
@@ -42,7 +46,8 @@ func main() {
 			break
 		}
 
-		input = strings.TrimSpace(input)
+		vars, input := processInput(input)
+		fmt.Println(vars)
 
 		switch {
 		case input == "exit" || input == "quit":
@@ -51,6 +56,23 @@ func main() {
 			fmt.Print(showHelp())
 		case input == "$":
 			fmt.Println(lastResponse)
+		case strings.Contains(input, " = "):
+			parts := strings.SplitN(input, " = ", 2)
+			if len(parts) == 2 {
+				varPart := strings.TrimSpace(parts[0])
+				source := strings.TrimSpace(parts[1])
+
+				if source == "$" {
+					extractVariables(varPart, lastResponse, vars)
+					continue
+				} else if strings.HasPrefix(source, "$.") {
+					path := strings.TrimPrefix(source, "$.")
+					value := gjson.Get(lastResponse, path)
+					variables[varPart] = value.Value()
+					continue
+				}
+			}
+
 		case strings.HasPrefix(input, "g("):
 			path := strings.TrimSuffix(strings.TrimPrefix(input, "g("), ")")
 			makeRequest("GET", buildURL(baseURL, path), "", &lastResponse)
@@ -189,4 +211,46 @@ func makeRequest(method, url, reqBody string, lastResponse *string) {
 		*lastResponse = string(pretty)
 	}
 
+}
+
+func detectScheme(url string) string {
+	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
+		return url
+	}
+	resp, err := http.Head("https://" + url)
+	if err == nil && resp.StatusCode < 400 {
+		resp.Body.Close()
+		return "https://" + url
+	}
+	return "http://" + url
+}
+
+func processInput(input string) (vars []string, req string) {
+	parsed := strings.Split(input, " = ")
+
+	if len(parsed) == 1 {
+		return []string{}, parsed[0]
+	}
+
+	return parseVarNames(parsed[0]), parsed[1]
+}
+
+func parseVarNames(vars string) (varList []string) {
+	vars = strings.Trim(vars, "{}")
+	parts := strings.Split(vars, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return parts
+}
+
+func parseResponse(varPart string) map[string]string {
+	result := make(map[string]string)
+
+	vars := strings.Trim(varPart, "{}")
+	parts := strings.Split(vars, ",")
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+	}
 }
