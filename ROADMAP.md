@@ -8,19 +8,19 @@
 - [x] POST with JSON body: `p(/login{username:admin})` #v0.0.5
 - [x] PUT/PATCH/DELETE commands: `pu()`, `pa()`, `d()`
 - [x] Shell-style history (up arrow) #v0.0.6
+- [x] Variable extraction from $: `{token} = $`
+- [x] `?v` variables command
+- [x] `Ctrl+` commands #v0.0.7
+- [ ] Template interpolation: `g(/users/${userId})`
 - [ ] `!!` repeat last command
 - [ ] POST with text body: `p(/webhook "message")`
 - [ ] POST with form data: `p(/form username=admin&password=pass)`
-- [ ] Variable extraction: `{token} = p(/login ...)`
-- [ ] Template interpolation: `g(/users/${userId})`
 - [ ] Auto auth injection (Bearer token)
-- [ ] `Ctrl+` commands
 - [ ] Color output (green for 2xx, red for errors)
 - [ ] Request counter in session
 - [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
 - [ ] `?s` session info command
 - [ ] `?h` history command
-- [ ] `?v` variables command
 - [ ] Response history: `$1`, `$2`, etc.
 - [ ] Query params: `g(/users?limit=10&offset=20)`
 - [ ] Custom headers: `g(/api -H "X-Custom: value")`

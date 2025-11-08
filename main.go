@@ -17,7 +17,7 @@ func main() {
 	variables := make(map[string]interface{})
 
 	if len(os.Args) < 2 {
-		fmt.Println("RAPID v0.0.6 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.0.7 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
@@ -46,9 +46,6 @@ func main() {
 			break
 		}
 
-		vars, input := processInput(input)
-		fmt.Println(vars)
-
 		switch {
 		case input == "exit" || input == "quit":
 			return
@@ -56,6 +53,10 @@ func main() {
 			fmt.Print(showHelp())
 		case input == "$":
 			fmt.Println(lastResponse)
+		case input == "?v":
+			for name, value := range variables {
+				fmt.Printf("%s = %v\n", name, value)
+			}
 		case strings.Contains(input, " = "):
 			parts := strings.SplitN(input, " = ", 2)
 			if len(parts) == 2 {
@@ -63,18 +64,24 @@ func main() {
 				source := strings.TrimSpace(parts[1])
 
 				if source == "$" {
-					extractVariables(varPart, lastResponse, vars)
+					extractVariables(varPart, lastResponse, variables)
 					continue
 				} else if strings.HasPrefix(source, "$.") {
 					path := strings.TrimPrefix(source, "$.")
 					value := gjson.Get(lastResponse, path)
 					variables[varPart] = value.Value()
 					continue
+				} else {
+					//TODO extract vars directly from request
+					fmt.Println("?")
 				}
+			} else {
+				fmt.Println("?")
+				continue
 			}
-
 		case strings.HasPrefix(input, "g("):
 			path := strings.TrimSuffix(strings.TrimPrefix(input, "g("), ")")
+			path = interpolateVars(path, variables)
 			makeRequest("GET", buildURL(baseURL, path), "", &lastResponse)
 
 		case strings.HasPrefix(input, "p("):
@@ -86,6 +93,7 @@ func main() {
 				continue
 			}
 			path := strings.TrimSpace(matches[1])
+			path = interpolateVars(path, variables)
 			requestBody := parseCJSON(matches[2])
 			makeRequest("POST", buildURL(baseURL, path), requestBody, &lastResponse)
 
@@ -98,6 +106,7 @@ func main() {
 				continue
 			}
 			path := strings.TrimSpace(matches[1])
+			path = interpolateVars(path, variables)
 			requestBody := parseCJSON(matches[2])
 			makeRequest("PUT", buildURL(baseURL, path), requestBody, &lastResponse)
 
@@ -110,11 +119,13 @@ func main() {
 				continue
 			}
 			path := strings.TrimSpace(matches[1])
+			path = interpolateVars(path, variables)
 			requestBody := parseCJSON(matches[2])
 			makeRequest("PATCH", buildURL(baseURL, path), requestBody, &lastResponse)
 
 		case strings.HasPrefix(input, "d("):
 			path := strings.TrimSuffix(strings.TrimPrefix(input, "d("), ")")
+			path = interpolateVars(path, variables)
 			makeRequest("DELETE", buildURL(baseURL, path), "", &lastResponse)
 		default:
 			fmt.Println("?")
@@ -134,18 +145,29 @@ func buildURL(baseURL, path string) string {
 
 func showHelp() string {
 	return `
-Commands:
+Requests:
 g(<path>) - GET request
+p(<path>{key:val}) - POST request
+pu(<path>{key:val}) - PUT request
+pa(<path>{key:val}) - PATCH request
+d(<path>) - DELETE request
+
+Metacommands:
 $ - Show last response
 ? - Show this help
-exit,quit - Exit rapid
+?v - Show variables
+{varName} = $ - Extract variable from last response
+exit,quit,q,x - Exit rapid
 
 Examples:
 
   g(users)
   g(users/1)
   $
+	{id, email} = $
+	g(users/${id})
   ?
+	?v
 `
 }
 
@@ -225,16 +247,6 @@ func detectScheme(url string) string {
 	return "http://" + url
 }
 
-func processInput(input string) (vars []string, req string) {
-	parsed := strings.Split(input, " = ")
-
-	if len(parsed) == 1 {
-		return []string{}, parsed[0]
-	}
-
-	return parseVarNames(parsed[0]), parsed[1]
-}
-
 func parseVarNames(vars string) (varList []string) {
 	vars = strings.Trim(vars, "{}")
 	parts := strings.Split(vars, ",")
@@ -244,13 +256,39 @@ func parseVarNames(vars string) (varList []string) {
 	return parts
 }
 
-func parseResponse(varPart string) map[string]string {
-	result := make(map[string]string)
+func extractVariables(varPart string, response string, variables map[string]interface{}) {
+	mappings := parseVarMappings(varPart)
+	for responsePath, varName := range mappings {
+		value := gjson.Get(response, responsePath)
+		if value.Exists() {
+			variables[varName] = value.Value()
+			fmt.Printf("%s = %v\n", varName, value.Value())
+		}
+	}
+}
 
+func parseVarMappings(varPart string) map[string]string {
+	result := make(map[string]string)
 	vars := strings.Trim(varPart, "{}")
 	parts := strings.Split(vars, ",")
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
+		if strings.Contains(part, ":") {
+			kv := strings.SplitN(part, ":", 2)
+			result[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+		} else {
+			result[part] = part
+		}
 	}
+	return result
+}
+
+func interpolateVars(path string, variables map[string]interface{}) string {
+	result := path
+	for varName, value := range variables {
+		placeholder := "${" + varName + "}"
+		result = strings.ReplaceAll(result, placeholder, fmt.Sprint(value))
+	}
+	return result
 }
