@@ -17,7 +17,7 @@ func main() {
 	variables := make(map[string]interface{})
 
 	if len(os.Args) < 2 {
-		fmt.Println("RAPID v0.0.7 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.0.8 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
@@ -46,17 +46,31 @@ func main() {
 			break
 		}
 
+		input = strings.TrimSpace(input)
+
 		switch {
-		case input == "exit" || input == "quit":
+		case input == "exit" || input == "quit" || input == "q" || input == "x":
 			return
 		case input == "?":
 			fmt.Print(showHelp())
 		case input == "$":
 			fmt.Println(lastResponse)
 		case input == "?v":
+			if len(variables) == 0 {
+				fmt.Println("{ }")
+				continue
+			}
 			for name, value := range variables {
 				fmt.Printf("%s = %v\n", name, value)
 			}
+		case input == "?vc" || input == "?clear":
+			variables = make(map[string]interface{})
+			fmt.Println("{ }")
+		case strings.HasSuffix(input, "="):
+			parts := strings.SplitN(input, "=", 2)
+			varToClear := strings.TrimSpace(parts[0])
+			delete(variables, varToClear)
+			fmt.Printf("x %s\n", varToClear)
 		case strings.Contains(input, " = "):
 			parts := strings.SplitN(input, " = ", 2)
 			if len(parts) == 2 {
@@ -71,9 +85,12 @@ func main() {
 					value := gjson.Get(lastResponse, path)
 					variables[varPart] = value.Value()
 					continue
-				} else {
+				} else if isRequest(source) {
 					//TODO extract vars directly from request
 					fmt.Println("?")
+				} else {
+					variables[varPart] = source
+					fmt.Printf("%s = %s\n", varPart, source)
 				}
 			} else {
 				fmt.Println("?")
@@ -156,7 +173,11 @@ Metacommands:
 $ - Show last response
 ? - Show this help
 ?v - Show variables
+?vc - Clear all variables
 {varName} = $ - Extract variable from last response
+varName = value - Set variable
+varName = - Clear variable
+
 exit,quit,q,x - Exit rapid
 
 Examples:
@@ -168,6 +189,8 @@ Examples:
 	g(users/${id})
   ?
 	?v
+	name = John
+	g(users/${name})
 `
 }
 
@@ -291,4 +314,12 @@ func interpolateVars(path string, variables map[string]interface{}) string {
 		result = strings.ReplaceAll(result, placeholder, fmt.Sprint(value))
 	}
 	return result
+}
+
+func isRequest(input string) bool {
+	return strings.HasPrefix(input, "d(") ||
+		strings.HasPrefix(input, "g(") ||
+		strings.HasPrefix(input, "p(") ||
+		strings.HasPrefix(input, "pa(") ||
+		strings.HasPrefix(input, "pu(")
 }

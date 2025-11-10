@@ -11,7 +11,10 @@
 - [x] Variable extraction from $: `{token} = $`
 - [x] `?v` variables command
 - [x] `Ctrl+` commands #v0.0.7
-- [ ] Template interpolation: `g(/users/${userId})`
+- [x] Template interpolation: `g(/users/${userId})`
+- [x] Direct variable assignment: `var = value`
+- [x] Clear variable: `var =`
+- [x] Clear all variables: ?vc` #v0.0.8
 - [ ] `!!` repeat last command
 - [ ] POST with text body: `p(/webhook "message")`
 - [ ] POST with form data: `p(/form username=admin&password=pass)`
