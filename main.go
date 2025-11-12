@@ -382,8 +382,8 @@ func (r *Request) Execute(variables map[string]interface{}) (Response, error) {
 	if authToken, exists := variables["$$auth"]; exists {
 		req.Header.Set("Authorization", "Bearer "+fmt.Sprint(authToken))
 	}
-	if r.Body != "" {
-		req.Header.Set("Content-Type", "application/json")
+	if r.Body != "" && r.ContentType != "" {
+		req.Header.Set("Content-Type", r.ContentType)
 	}
 
 	start := time.Now()
