@@ -7,6 +7,7 @@ import (
 	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 type Request struct {
 	Method string
+	ContentType string
 	Url   string
 	Body   string
 }
@@ -25,10 +27,10 @@ type Response struct {
 }
 
 func main() {
-	variables := make(map[string]interface{})
+	variables := loadVariables(".rapidvars")
 
 	if len(os.Args) < 2 {
-		fmt.Println("RAPID v0.0.8 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.1.0 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
@@ -97,8 +99,20 @@ func main() {
 					variables[varPart] = value.Value()
 					continue
 				} else if isRequest(source) {
-					//TODO extract vars directly from request
-					fmt.Println("?")
+					req, err := NewRequest(source, baseURL, variables)
+					if err != nil {
+						fmt.Println("X", err)
+						continue
+					}
+					response, err := req.Execute(variables)
+					if err != nil {
+						fmt.Println("X", err)
+						continue
+					}
+					fmt.Println(response.Body)
+					lastResponse = response.Body
+					extractVariables(varPart, response.Body, variables)
+					continue
 				} else {
 					variables[varPart] = source
 					fmt.Printf("%s = %s\n", varPart, source)
@@ -107,54 +121,19 @@ func main() {
 				fmt.Println("?")
 				continue
 			}
-		case strings.HasPrefix(input, "g("):
-			path := strings.TrimSuffix(strings.TrimPrefix(input, "g("), ")")
-			path = interpolateVars(path, variables)
-			makeRequest("GET", buildURL(baseURL, path), "", &lastResponse)
-
-		case strings.HasPrefix(input, "p("):
-			pattern := `p\(([^{]+)\s*(\{[^}]+\})\)`
-			re := regexp.MustCompile(pattern)
-			matches := re.FindStringSubmatch(input)
-			if len(matches) != 3 {
-				fmt.Println("? ... p(/path {key:val})")
+		case isRequest(input):
+			req, err := NewRequest(input, baseURL, variables)
+			if err != nil {
+				fmt.Println("X", err)
 				continue
 			}
-			path := strings.TrimSpace(matches[1])
-			path = interpolateVars(path, variables)
-			requestBody := parseCJSON(matches[2])
-			makeRequest("POST", buildURL(baseURL, path), requestBody, &lastResponse)
-
-		case strings.HasPrefix(input, "pu("):
-			pattern := `pu\(([^{]+)\s*(\{[^}]+\})\)`
-			re := regexp.MustCompile(pattern)
-			matches := re.FindStringSubmatch(input)
-			if len(matches) != 3 {
-				fmt.Println("? ... pu(/path {key:val})")
+			response, err := req.Execute(variables)
+			if err != nil {
+				fmt.Println("X", err)
 				continue
 			}
-			path := strings.TrimSpace(matches[1])
-			path = interpolateVars(path, variables)
-			requestBody := parseCJSON(matches[2])
-			makeRequest("PUT", buildURL(baseURL, path), requestBody, &lastResponse)
-
-		case strings.HasPrefix(input, "pa("):
-			pattern := `pa\(([^{]+)\s*(\{[^}]+\})\)`
-			re := regexp.MustCompile(pattern)
-			matches := re.FindStringSubmatch(input)
-			if len(matches) != 3 {
-				fmt.Println("? ... pa(/path {key:val})")
-				continue
-			}
-			path := strings.TrimSpace(matches[1])
-			path = interpolateVars(path, variables)
-			requestBody := parseCJSON(matches[2])
-			makeRequest("PATCH", buildURL(baseURL, path), requestBody, &lastResponse)
-
-		case strings.HasPrefix(input, "d("):
-			path := strings.TrimSuffix(strings.TrimPrefix(input, "d("), ")")
-			path = interpolateVars(path, variables)
-			makeRequest("DELETE", buildURL(baseURL, path), "", &lastResponse)
+			fmt.Println(response.Body)
+			lastResponse = response.Body
 		default:
 			fmt.Println("?")
 		}
@@ -163,6 +142,10 @@ func main() {
 
 func buildURL(baseURL, path string) string {
 	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	if strings.HasPrefix(path, "//") {
+		return "https:" + path
+	}
 
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
@@ -175,9 +158,9 @@ func showHelp() string {
 	return `
 Requests:
 g(<path>) - GET request
-p(<path>{key:val}) - POST request
-pu(<path>{key:val}) - PUT request
-pa(<path>{key:val}) - PATCH request
+p(<path> {key:val}) - POST request
+pu(<path> {key:val}) - PUT request
+pa(<path> {key:val}) - PATCH request
 d(<path>) - DELETE request
 
 Metacommands:
@@ -336,69 +319,70 @@ func isRequest(input string) bool {
 }
 
 func NewRequest(input string, baseURL string, variables map[string]interface{}) (*Request, error) {
-	request := &Request{}
 	switch {
 	case strings.HasPrefix(input, "d("):
 		path := strings.TrimSuffix(strings.TrimPrefix(input, "d("), ")")
 		path = interpolateVars(path, variables)
-		return *Request{Body: "", Method: "DELETE", Url: buildURL(baseURL, path)}, nil
+		return &Request{Body: "", Method: "DELETE", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(input, "g("):
 		path := strings.TrimSuffix(strings.TrimPrefix(input, "g("), ")")
 		path = interpolateVars(path, variables)
-		return *Request{Body: "", Method: "GET", Url: buildURL(baseURL, path)}, nil
+		return &Request{Body: "", Method: "GET", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(input, "p("):
-		pattern := `p\(([^{]+)\s*(\{[^}]+\})\)`
+		pattern := `p\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(input)
-		if len(matches) != 3 {
+		if len(matches) < 2 {
 			return nil, fmt.Errorf("? ... p(/path {key:val})")
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
-		requestBody := parseCJSON(matches[2])
-		return *Request{Body: requestBody, Method: "POST", Url: buildURL(baseURL, path)}, nil
+		body, contentType := parseBody(matches[2], variables)
+		return &Request{Body: body, ContentType: contentType, Method: "POST", Url: buildURL(baseURL, path)}, nil
 
 	case strings.HasPrefix(input, "pu("):
-		pattern := `pu\(([^{]+)\s*(\{[^}]+\})\)`
+		pattern := `pu\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(input)
-		if len(matches) != 3 {
+		if len(matches) < 2 {
 			return nil, fmt.Errorf("? ... pu(/path {key:val})")
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
-		requestBody := parseCJSON(matches[2])
-		return *Request{Body: requestBody, Method: "PUT", Url: buildURL(baseURL, path)}, nil
+		body, contentType := parseBody(matches[2], variables)
+		return &Request{Body: body, ContentType: contentType, Method: "PUT", Url: buildURL(baseURL, path)}, nil
 
 	case strings.HasPrefix(input, "pa("):
-		pattern := `pa\(([^{]+)\s*(\{[^}]+\})\)`
+		pattern := `pu\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(input)
-		if len(matches) != 3 {
+		if len(matches) < 2 {
 			return nil, fmt.Errorf("? ... pa(/path {key:val})")
-			continue
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
-		requestBody := parseCJSON(matches[2])
-		return *Request{Body: requestBody, Method: "PATCH", Url: buildURL(baseURL, path)}, nil
+		body, contentType := parseBody(matches[2], variables)
+		return &Request{Body: body, ContentType: contentType, Method: "PATCH", Url: buildURL(baseURL, path)}, nil
 	default:
 		return nil, fmt.Errorf("?")
 	}
 }
 
-func (r *Request) Execute() (string, error) {
+func (r *Request) Execute(variables map[string]interface{}) (Response, error) {
 	var body io.Reader
-	if reqBody != "" {
-		body = strings.NewReader(reqBody)
+	if r.Body != "" {
+		body = strings.NewReader(r.Body)
 	}
 
-	req, err := http.NewRequest(method, url, body)
+	req, err := http.NewRequest(r.Method, r.Url, body)
 	if err != nil {
-		return "", err
+		return Response{}, err
 	}
 
-	if reqBody != "" {
+	if authToken, exists := variables["$$auth"]; exists {
+		req.Header.Set("Authorization", "Bearer "+fmt.Sprint(authToken))
+	}
+	if r.Body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
@@ -407,26 +391,70 @@ func (r *Request) Execute() (string, error) {
 	elapsed := time.Since(start)
 
 	if err != nil {
-		fmt.Println("X", err)
-		return
+		return Response{}, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Could not parse response body: ", err)
-		return
-
+		return Response{}, fmt.Errorf("could not read response body: %w", err)
 	}
+
 	fmt.Printf("✓ %d %s (%dms)\n", resp.StatusCode, http.StatusText(resp.StatusCode), elapsed.Milliseconds())
 
 	var data interface{}
 	if err := json.Unmarshal(respBody, &data); err != nil {
-		fmt.Println(string(respBody))
-	} else {
-		pretty, _ := json.MarshalIndent(data, "", " ")
-		fmt.Println(string(pretty))
-		*lastResponse = string(pretty)
+		// Non-JSON response - return as-is
+		return Response{Body: string(respBody), Status: resp.StatusCode}, nil
 	}
 
+	pretty, _ := json.MarshalIndent(data, "", " ")
+	return Response{Body: string(pretty), Status: resp.StatusCode}, nil
+}
+
+func parseBody(bodyPart string, variables map[string]interface{}) (body string, contentType string) {
+	bodyPart = strings.TrimSpace(bodyPart)
+	bodyPart = interpolateVars(bodyPart, variables)
+
+	if bodyPart == "" {
+		return "", ""
+	}
+
+	if strings.HasPrefix(bodyPart, "?") {
+		formData := strings.TrimPrefix(bodyPart, "?")
+
+		values := url.Values{}
+		pairs := strings.Split(formData, "&")
+		
+		for _, pair := range pairs {
+			parts := strings.SplitN(pair, "=", 2)
+			if len(parts) == 2 {
+				values.Add(parts[0], parts[1])
+			}
+		}
+
+		return values.Encode(), "application/x-www-form-urlencoded"
+	}
+
+	if strings.HasPrefix(bodyPart, "\"") && strings.HasSuffix(bodyPart, "\"") {
+		return strings.Trim(bodyPart, "\""), "text/plain"
+	}
+
+	if strings.HasPrefix(bodyPart, "{") {
+		return parseCJSON(bodyPart), "application/json"
+	}
+
+	return "", ""
+}
+
+func loadVariables(filename string) map[string]interface{} {
+	vars := make(map[string]interface{})
+
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return vars
+	}
+
+	json.Unmarshal(data, &vars)
+	return vars
 }

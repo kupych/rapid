@@ -15,17 +15,18 @@
 - [x] Direct variable assignment: `var = value`
 - [x] Clear variable: `var =`
 - [x] Clear all variables: ?vc` #v0.0.8
+- [x] POST with text body: `p(/webhook "message")`
+- [x] POST with form data: `p(/form username=admin&password=pass)`
+- [x] Auto auth injection (Bearer token)
+- [x] Query params: `g(/users?limit=10&offset=20)`
+- [x] Read variables from .rapidvars #v0.1.0
 - [ ] `!!` repeat last command
-- [ ] POST with text body: `p(/webhook "message")`
-- [ ] POST with form data: `p(/form username=admin&password=pass)`
-- [ ] Auto auth injection (Bearer token)
 - [ ] Color output (green for 2xx, red for errors)
 - [ ] Request counter in session
 - [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
 - [ ] `?s` session info command
 - [ ] `?h` history command
 - [ ] Response history: `$1`, `$2`, etc.
-- [ ] Query params: `g(/users?limit=10&offset=20)`
 - [ ] Custom headers: `g(/api -H "X-Custom: value")`
 - [ ] OpenAPI spec auto-discovery
 - [ ] Endpoint autocomplete from spec
