@@ -42,5 +42,18 @@ git add PKGBUILD .SRCINFO
 git commit -m "Update to v$VERSION"
 git push
 
-echo "✅ Released v$VERSION to GitHub and AUR!"
+# Update Homebrew tap
+echo "🍺 Updating Homebrew tap..."
+cd ~/homebrew-tap || exit
+
+# Update version and hash in formula
+sed -i "s|url \".*\"|url \"https://github.com/kupych/rapid/archive/v$VERSION.tar.gz\"|" rapid.rb
+sed -i "s/sha256 \".*\"/sha256 \"$CHECKSUM\"/" rapid.rb
+
+# Commit and push
+git add rapid.rb
+git commit -m "Update rapid to v$VERSION"
+git push
+
+echo "✅ Released v$VERSION to GitHub, AUR, and Homebrew!"
 echo "📋 Don't forget to update ROADMAP.md"
