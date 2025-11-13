@@ -17,6 +17,7 @@ import (
 type Request struct {
 	Method string
 	ContentType string
+	Headers map[string]string
 	Url   string
 	Body   string
 }
@@ -28,6 +29,7 @@ type Response struct {
 
 func main() {
 	variables := loadVariables(".rapidvars")
+	headers := make(map[string]string)
 
 	if len(os.Args) < 2 {
 		fmt.Println("RAPID v0.1.0 - Rapid API Dialogue")
@@ -75,6 +77,26 @@ func main() {
 			}
 			for name, value := range variables {
 				fmt.Printf("%s = %v\n", name, value)
+			}
+		case input == "?h":
+			if len(headers) == 0 {
+				fmt.Println("{ }")
+				continue
+			}
+			for name, value := range headers {
+				fmt.Printf("<%s: %v>\n", name, value)
+			}
+		case strings.HasPrefix(input, "?h "):
+			parts := strings.SplitN(input, ":", 2)
+			if len(parts) == 2 {
+				name := strings.TrimSpace(parts[0])
+				value := strings.TrimSpace(parts[1])
+				headers[name] = value
+				fmt.Printf("<%s: %v>\n", name, value)
+			} else {
+				name := strings.TrimSpace(parts[0])
+				delete(headers, name)
+				fmt.Printf("x <%s>\n", name)
 			}
 		case input == "?vc" || input == "?clear":
 			variables = make(map[string]interface{})
@@ -318,7 +340,7 @@ func isRequest(input string) bool {
 		strings.HasPrefix(input, "pu(")
 }
 
-func NewRequest(input string, baseURL string, variables map[string]interface{}) (*Request, error) {
+func NewRequest(input string, baseURL string, variables map[string]interface{}, headers map[string]string) (*Request, error) {
 	switch {
 	case strings.HasPrefix(input, "d("):
 		path := strings.TrimSuffix(strings.TrimPrefix(input, "d("), ")")
@@ -337,7 +359,13 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}) 
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
-		body, contentType := parseBody(matches[2], variables)
+		bodyPart := matches[2]
+		bodyAndHeaders := strings.SplitN(bodyPart, "<", 2)
+		if len(bodyAndHeaders) == 2 {
+			headers = "<" + bodyAndHeaders[1]
+		}
+
+		body, contentType := parseBody(bodyAndHeaders[0], variables)
 		return &Request{Body: body, ContentType: contentType, Method: "POST", Url: buildURL(baseURL, path)}, nil
 
 	case strings.HasPrefix(input, "pu("):
@@ -353,7 +381,7 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}) 
 		return &Request{Body: body, ContentType: contentType, Method: "PUT", Url: buildURL(baseURL, path)}, nil
 
 	case strings.HasPrefix(input, "pa("):
-		pattern := `pu\(([^\s]+)(?:\s+(.+))?\)`
+		pattern := `pa\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(input)
 		if len(matches) < 2 {
