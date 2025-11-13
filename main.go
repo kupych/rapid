@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"github.com/chzyer/readline"
 	"github.com/tidwall/gjson"
@@ -15,11 +16,11 @@ import (
 )
 
 type Request struct {
-	Method string
+	Method      string
 	ContentType string
-	Headers map[string]string
-	Url   string
-	Body   string
+	Headers     map[string]string
+	Url         string
+	Body        string
 }
 
 type Response struct {
@@ -28,21 +29,27 @@ type Response struct {
 }
 
 func main() {
-	variables := loadVariables(".rapidvars")
-	headers := make(map[string]string)
+	debugFlag := flag.Bool("debug", false, "Enable debug mode")
+	flag.Parse()
 
-	if len(os.Args) < 2 {
-		fmt.Println("RAPID v0.1.0 - Rapid API Dialogue")
-		fmt.Println("Usage: rapid <base-url>")
+	args := flag.Args()
+	variables, headers := loadVariables(".rapidvars")
+
+	fmt.Println(debugFlag)
+	if len(args) < 1 {
+		fmt.Println("RAPID v0.2.0 - Rapid API Dialogue")
+		fmt.Println("Usage: rapid [--debug] <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
 		fmt.Println("Star: https://github.com/kupych/rapid")
 		return
 	}
 
+	debug := *debugFlag
+
 	lastResponse := ""
 
-	baseURL := os.Args[1]
+	baseURL := args[0]
 	baseURL = detectScheme(baseURL)
 	fmt.Printf("RAPID connected to %s\n", baseURL)
 	fmt.Println()
@@ -66,6 +73,13 @@ func main() {
 		switch {
 		case input == "exit" || input == "quit" || input == "q" || input == "x":
 			return
+		case input == "?d":
+			debug = !debug
+			if debug {
+				fmt.Println("Debug ON")
+			} else {
+				fmt.Println("Debug OFF")
+			}
 		case input == "?":
 			fmt.Print(showHelp())
 		case input == "$":
@@ -80,17 +94,21 @@ func main() {
 			}
 		case input == "?h":
 			if len(headers) == 0 {
-				fmt.Println("{ }")
+				fmt.Println("< >")
 				continue
 			}
 			for name, value := range headers {
 				fmt.Printf("<%s: %v>\n", name, value)
 			}
+
+		case input == "?hc":
+			headers = make(map[string]string)
+			fmt.Println("< >")
 		case strings.HasPrefix(input, "?h "):
-			parts := strings.SplitN(input, ":", 2)
+			parts := strings.SplitN(strings.TrimPrefix(input, "?h "), ":", 2)
 			if len(parts) == 2 {
-				name := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(parts[1])
+				name := strings.ToLower(strings.TrimSpace(parts[0]))
+				value := interpolateVars(strings.TrimSpace(parts[1]), variables)
 				headers[name] = value
 				fmt.Printf("<%s: %v>\n", name, value)
 			} else {
@@ -121,12 +139,12 @@ func main() {
 					variables[varPart] = value.Value()
 					continue
 				} else if isRequest(source) {
-					req, err := NewRequest(source, baseURL, variables)
+					req, err := NewRequest(source, baseURL, variables, headers, debug)
 					if err != nil {
 						fmt.Println("X", err)
 						continue
 					}
-					response, err := req.Execute(variables)
+					response, err := req.Execute(variables, debug)
 					if err != nil {
 						fmt.Println("X", err)
 						continue
@@ -144,12 +162,12 @@ func main() {
 				continue
 			}
 		case isRequest(input):
-			req, err := NewRequest(input, baseURL, variables)
+			req, err := NewRequest(input, baseURL, variables, headers, debug)
 			if err != nil {
 				fmt.Println("X", err)
 				continue
 			}
-			response, err := req.Execute(variables)
+			response, err := req.Execute(variables, debug)
 			if err != nil {
 				fmt.Println("X", err)
 				continue
@@ -340,63 +358,76 @@ func isRequest(input string) bool {
 		strings.HasPrefix(input, "pu(")
 }
 
-func NewRequest(input string, baseURL string, variables map[string]interface{}, headers map[string]string) (*Request, error) {
+func NewRequest(input string, baseURL string, variables map[string]interface{}, sessionHeaders map[string]string, debug bool) (*Request, error) {
+	inlineHeaders, cleanInput := parseInlineHeaders(input)
+
+	if debug {
+		fmt.Printf("DEBUG NewRequest: original='%s'\n", input)
+		fmt.Printf("DEBUG NewRequest: cleanInput='%s'\n", cleanInput)
+		fmt.Printf("DEBUG NewRequest: inlineHeaders=%v\n", inlineHeaders)
+	}
+
+	headers := make(map[string]string)
+
+	for k, v := range sessionHeaders {
+		headers[strings.ToLower(k)] = v
+	}
+
+	for k, v := range inlineHeaders {
+		headers[k] = interpolateVars(v, variables)
+	}
+
 	switch {
-	case strings.HasPrefix(input, "d("):
-		path := strings.TrimSuffix(strings.TrimPrefix(input, "d("), ")")
+	case strings.HasPrefix(cleanInput, "d("):
+		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "d("), ")")
 		path = interpolateVars(path, variables)
-		return &Request{Body: "", Method: "DELETE", Url: buildURL(baseURL, path)}, nil
-	case strings.HasPrefix(input, "g("):
-		path := strings.TrimSuffix(strings.TrimPrefix(input, "g("), ")")
+		return &Request{Body: "", Headers: headers, Method: "DELETE", Url: buildURL(baseURL, path)}, nil
+	case strings.HasPrefix(cleanInput, "g("):
+		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "g("), ")")
 		path = interpolateVars(path, variables)
-		return &Request{Body: "", Method: "GET", Url: buildURL(baseURL, path)}, nil
-	case strings.HasPrefix(input, "p("):
+		return &Request{Body: "", Headers: headers, Method: "GET", Url: buildURL(baseURL, path)}, nil
+	case strings.HasPrefix(cleanInput, "p("):
 		pattern := `p\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(input)
+		matches := re.FindStringSubmatch(cleanInput)
 		if len(matches) < 2 {
 			return nil, fmt.Errorf("? ... p(/path {key:val})")
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
 		bodyPart := matches[2]
-		bodyAndHeaders := strings.SplitN(bodyPart, "<", 2)
-		if len(bodyAndHeaders) == 2 {
-			headers = "<" + bodyAndHeaders[1]
-		}
+		body, contentType := parseBody(bodyPart, variables)
+		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "POST", Url: buildURL(baseURL, path)}, nil
 
-		body, contentType := parseBody(bodyAndHeaders[0], variables)
-		return &Request{Body: body, ContentType: contentType, Method: "POST", Url: buildURL(baseURL, path)}, nil
-
-	case strings.HasPrefix(input, "pu("):
+	case strings.HasPrefix(cleanInput, "pu("):
 		pattern := `pu\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(input)
+		matches := re.FindStringSubmatch(cleanInput)
 		if len(matches) < 2 {
 			return nil, fmt.Errorf("? ... pu(/path {key:val})")
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
 		body, contentType := parseBody(matches[2], variables)
-		return &Request{Body: body, ContentType: contentType, Method: "PUT", Url: buildURL(baseURL, path)}, nil
+		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "PUT", Url: buildURL(baseURL, path)}, nil
 
-	case strings.HasPrefix(input, "pa("):
+	case strings.HasPrefix(cleanInput, "pa("):
 		pattern := `pa\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(input)
+		matches := re.FindStringSubmatch(cleanInput)
 		if len(matches) < 2 {
 			return nil, fmt.Errorf("? ... pa(/path {key:val})")
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
 		body, contentType := parseBody(matches[2], variables)
-		return &Request{Body: body, ContentType: contentType, Method: "PATCH", Url: buildURL(baseURL, path)}, nil
+		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "PATCH", Url: buildURL(baseURL, path)}, nil
 	default:
 		return nil, fmt.Errorf("?")
 	}
 }
 
-func (r *Request) Execute(variables map[string]interface{}) (Response, error) {
+func (r *Request) Execute(variables map[string]interface{}, debug bool) (Response, error) {
 	var body io.Reader
 	if r.Body != "" {
 		body = strings.NewReader(r.Body)
@@ -407,11 +438,21 @@ func (r *Request) Execute(variables map[string]interface{}) (Response, error) {
 		return Response{}, err
 	}
 
+	for k, v := range r.Headers {
+		req.Header.Set(k, v)
+	}
+
 	if authToken, exists := variables["$$auth"]; exists {
 		req.Header.Set("Authorization", "Bearer "+fmt.Sprint(authToken))
 	}
 	if r.Body != "" && r.ContentType != "" {
 		req.Header.Set("Content-Type", r.ContentType)
+	}
+
+	if debug {
+		fmt.Printf("DEBUG: %s %s\n", r.Method, r.Url)
+		fmt.Printf("DEBUG: Headers: %v\n", r.Header)
+		fmt.Printf("DEBUG: Body: %v\n", r.Body)
 	}
 
 	start := time.Now()
@@ -453,7 +494,7 @@ func parseBody(bodyPart string, variables map[string]interface{}) (body string, 
 
 		values := url.Values{}
 		pairs := strings.Split(formData, "&")
-		
+
 		for _, pair := range pairs {
 			parts := strings.SplitN(pair, "=", 2)
 			if len(parts) == 2 {
@@ -475,14 +516,41 @@ func parseBody(bodyPart string, variables map[string]interface{}) (body string, 
 	return "", ""
 }
 
-func loadVariables(filename string) map[string]interface{} {
+func loadVariables(filename string) (map[string]interface{}, map[string]string) {
 	vars := make(map[string]interface{})
+	headers := make(map[string]string)
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return vars
+		return vars, headers
 	}
 
-	json.Unmarshal(data, &vars)
-	return vars
+	raw := make(map[string]interface{})
+	json.Unmarshal(data, &raw)
+
+	for k, v := range raw {
+		if strings.HasPrefix(k, "$$header:") {
+			headerName := strings.TrimPrefix(k, "$$header:")
+			headers[strings.ToLower(headerName)] = fmt.Sprint(v)
+		} else {
+			vars[k] = v
+		}
+
+	}
+	return vars, headers
+}
+
+func parseInlineHeaders(input string) (map[string]string, string) {
+	headers := make(map[string]string)
+	pattern := `\s?<([^:]+):([^>]+)>`
+
+	re := regexp.MustCompile(pattern)
+
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		headers[strings.ToLower(strings.TrimSpace(match[1]))] = strings.TrimSpace(match[2])
+	}
+
+	return headers, strings.TrimSpace(re.ReplaceAllString(input, ""))
 }

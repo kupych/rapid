@@ -20,14 +20,15 @@
 - [x] Auto auth injection (Bearer token)
 - [x] Query params: `g(/users?limit=10&offset=20)`
 - [x] Read variables from .rapidvars #v0.1.0
+- [x] Custom headers: `g(/api <Custom: value>)`
+- [x] Read headers from .rapidvars (format "$$header:xxx") #v0.2.0
 - [ ] `!!` repeat last command
 - [ ] Color output (green for 2xx, red for errors)
 - [ ] Request counter in session
 - [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
 - [ ] `?s` session info command
-- [ ] `?h` history command
+- [ ] `?h` history command #
 - [ ] Response history: `$1`, `$2`, etc.
-- [ ] Custom headers: `g(/api -H "X-Custom: value")`
 - [ ] OpenAPI spec auto-discovery
 - [ ] Endpoint autocomplete from spec
 - [ ] Fuzzy endpoint search
