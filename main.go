@@ -130,16 +130,31 @@ func main() {
 				varPart := strings.TrimSpace(parts[0])
 				source := strings.TrimSpace(parts[1])
 
-				if source == "$" {
-					extractVariables(varPart, lastResponse, variables)
-					continue
-				} else if strings.HasPrefix(source, "$.") {
-					path := strings.TrimPrefix(source, "$.")
-					value := gjson.Get(lastResponse, path)
-					variables[varPart] = value.Value()
+				if strings.HasPrefix(source, "$") {
+					path := strings.TrimPrefix(source, "$")
+					if path == "" {
+						extractVariables(varPart, lastResponse, variables)
+					} else {
+						path = strings.TrimPrefix(path, ".")
+						value := gjson.Get(lastResponse, path)
+						if debug {
+							fmt.Printf("DEBUG: path='%s', exists=%v, raw=%v\n", path, value.Exists(), value.Raw)
+						}
+						variables[varPart] = value.Value()
+					}
 					continue
 				} else if isRequest(source) {
-					req, err := NewRequest(source, baseURL, variables, headers, debug)
+					lastParen := strings.LastIndex(source, ")")
+					if lastParen == -1 {
+						fmt.Println("?")
+						continue
+					}
+
+					requestPart := source[:lastParen+1]
+					pathPart := source[lastParen+1:]
+
+					req, err := NewRequest(requestPart, baseURL, variables, headers, debug)
+
 					if err != nil {
 						fmt.Println("X", err)
 						continue
@@ -149,9 +164,17 @@ func main() {
 						fmt.Println("X", err)
 						continue
 					}
+
+					if pathPart != "" {
+						pathPart = strings.TrimPrefix(pathPart, ".")
+						value := gjson.Get(lastResponse, pathPart)
+						variables[varPart] = value.Value()
+					} else {
+						extractVariables(varPart, response.Body, variables)
+					}
+
 					fmt.Println(response.Body)
 					lastResponse = response.Body
-					extractVariables(varPart, response.Body, variables)
 					continue
 				} else {
 					variables[varPart] = source
@@ -451,7 +474,7 @@ func (r *Request) Execute(variables map[string]interface{}, debug bool) (Respons
 
 	if debug {
 		fmt.Printf("DEBUG: %s %s\n", r.Method, r.Url)
-		fmt.Printf("DEBUG: Headers: %v\n", r.Header)
+		fmt.Printf("DEBUG: Headers: %v\n", r.Headers)
 		fmt.Printf("DEBUG: Body: %v\n", r.Body)
 	}
 
