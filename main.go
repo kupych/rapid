@@ -33,9 +33,6 @@ func main() {
 	flag.Parse()
 
 	args := flag.Args()
-	variables, headers := loadVariables(".rapidvars")
-
-	fmt.Println(debugFlag)
 	if len(args) < 1 {
 		fmt.Println("RAPID v0.2.0 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid [--debug] <base-url>")
@@ -46,15 +43,85 @@ func main() {
 	}
 
 	debug := *debugFlag
-
+	variables, headers := loadVariables(".rapidvars")
 	lastResponse := ""
-
 	baseURL := args[0]
 	baseURL = detectScheme(baseURL)
+
 	fmt.Printf("RAPID connected to %s\n", baseURL)
 	fmt.Println()
 
-	rl, err := readline.New("> ")
+	var rl *readline.Instance
+
+	// Listener for command expansion
+	listener := readline.FuncListener(func(line []rune, pos int, key rune) (newLine []rune, newPos int, ok bool) {
+		// Trigger expansion on space, tab, or open paren
+		if key == ' ' || key == '\t' || key == '(' {
+			// Get current text (line already includes the new key, so we need to exclude it)
+			currentText := strings.TrimSpace(string(line))
+
+			// If the trigger is '(', the buffer already has it, so strip it off
+			if key == '(' && strings.HasSuffix(currentText, "(") {
+				currentText = strings.TrimSuffix(currentText, "(")
+				currentText = strings.TrimSpace(currentText)
+			}
+
+			// Get the last word (after the last space)
+			words := strings.Fields(currentText)
+			lastWord := ""
+			if len(words) > 0 {
+				lastWord = words[len(words)-1]
+			}
+
+			if debug {
+				fmt.Printf("\nDEBUG: Listener triggered! key=%q, currentText=%q, lastWord=%q\n", key, currentText, lastWord)
+			}
+
+			// Check for command abbreviations
+			expansions := map[string]string{
+				"delete": "delete(",
+				"del":    "delete(",
+				"d":      "delete(",
+				"patch":  "patch(",
+				"pat":    "patch(",
+				"pa":     "patch(",
+				"put":    "put(",
+				"pu":     "put(",
+				"post":   "post(",
+				"pos":    "post(",
+				"po":     "post(",
+				"p":      "post(",
+				"get":    "get(",
+				"ge":     "get(",
+				"g":      "get(",
+			}
+
+			for abbrev, expansion := range expansions {
+				if lastWord == abbrev {
+					if debug {
+						fmt.Printf("DEBUG: Matched! %q -> %q\n", abbrev, expansion)
+					}
+					// Replace just the last word with the expansion
+					prefix := ""
+					if len(words) > 1 {
+						prefix = strings.Join(words[:len(words)-1], " ") + " "
+					}
+					rl.Operation.SetBuffer(prefix + expansion)
+					rl.Operation.Refresh()
+					// Consume the trigger key (space/tab/paren) since expansion already has '('
+					return nil, 0, false
+				}
+			}
+		}
+
+		return line, pos, true
+	})
+
+	var err error
+	rl, err = readline.NewEx(&readline.Config{
+		Prompt:   "> ",
+		Listener: listener,
+	})
 
 	if err != nil {
 		panic(err)
@@ -100,7 +167,6 @@ func main() {
 			for name, value := range headers {
 				fmt.Printf("<%s: %v>\n", name, value)
 			}
-
 		case input == "?hc":
 			headers = make(map[string]string)
 			fmt.Println("< >")
@@ -154,7 +220,6 @@ func main() {
 					pathPart := source[lastParen+1:]
 
 					req, err := NewRequest(requestPart, baseURL, variables, headers, debug)
-
 					if err != nil {
 						fmt.Println("X", err)
 						continue
@@ -374,7 +439,12 @@ func interpolateVars(path string, variables map[string]interface{}) string {
 }
 
 func isRequest(input string) bool {
-	return strings.HasPrefix(input, "d(") ||
+	return strings.HasPrefix(input, "delete(") ||
+		strings.HasPrefix(input, "get(") ||
+		strings.HasPrefix(input, "post(") ||
+		strings.HasPrefix(input, "patch(") ||
+		strings.HasPrefix(input, "put(") ||
+		strings.HasPrefix(input, "d(") ||
 		strings.HasPrefix(input, "g(") ||
 		strings.HasPrefix(input, "p(") ||
 		strings.HasPrefix(input, "pa(") ||
@@ -401,14 +471,34 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 	}
 
 	switch {
+	case strings.HasPrefix(cleanInput, "delete("):
+		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "delete("), ")")
+		path = interpolateVars(path, variables)
+		return &Request{Body: "", Headers: headers, Method: "DELETE", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "d("):
 		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "d("), ")")
 		path = interpolateVars(path, variables)
 		return &Request{Body: "", Headers: headers, Method: "DELETE", Url: buildURL(baseURL, path)}, nil
+	case strings.HasPrefix(cleanInput, "get("):
+		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "get("), ")")
+		path = interpolateVars(path, variables)
+		return &Request{Body: "", Headers: headers, Method: "GET", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "g("):
 		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "g("), ")")
 		path = interpolateVars(path, variables)
 		return &Request{Body: "", Headers: headers, Method: "GET", Url: buildURL(baseURL, path)}, nil
+	case strings.HasPrefix(cleanInput, "post("):
+		pattern := `post\(([^\s]+)(?:\s+(.+))?\)`
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(cleanInput)
+		if len(matches) < 2 {
+			return nil, fmt.Errorf("? ... post(/path {key:val})")
+		}
+		path := strings.TrimSpace(matches[1])
+		path = interpolateVars(path, variables)
+		bodyPart := matches[2]
+		body, contentType := parseBody(bodyPart, variables)
+		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "POST", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "p("):
 		pattern := `p\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)
@@ -421,7 +511,17 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 		bodyPart := matches[2]
 		body, contentType := parseBody(bodyPart, variables)
 		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "POST", Url: buildURL(baseURL, path)}, nil
-
+	case strings.HasPrefix(cleanInput, "put("):
+		pattern := `put\(([^\s]+)(?:\s+(.+))?\)`
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(cleanInput)
+		if len(matches) < 2 {
+			return nil, fmt.Errorf("? ... put(/path {key:val})")
+		}
+		path := strings.TrimSpace(matches[1])
+		path = interpolateVars(path, variables)
+		body, contentType := parseBody(matches[2], variables)
+		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "PUT", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "pu("):
 		pattern := `pu\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)
@@ -433,7 +533,17 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 		path = interpolateVars(path, variables)
 		body, contentType := parseBody(matches[2], variables)
 		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "PUT", Url: buildURL(baseURL, path)}, nil
-
+	case strings.HasPrefix(cleanInput, "patch("):
+		pattern := `patch\(([^\s]+)(?:\s+(.+))?\)`
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(cleanInput)
+		if len(matches) < 2 {
+			return nil, fmt.Errorf("? ... patch(/path {key:val})")
+		}
+		path := strings.TrimSpace(matches[1])
+		path = interpolateVars(path, variables)
+		body, contentType := parseBody(matches[2], variables)
+		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "PATCH", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "pa("):
 		pattern := `pa\(([^\s]+)(?:\s+(.+))?\)`
 		re := regexp.MustCompile(pattern)

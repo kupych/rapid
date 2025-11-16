@@ -22,6 +22,7 @@
 - [x] Read variables from .rapidvars #v0.1.0
 - [x] Custom headers: `g(/api <Custom: value>)`
 - [x] Read headers from .rapidvars (format "$$header:xxx") #v0.2.0
+- [x] Request autocomplete #v0.2.2
 - [ ] `!!` repeat last command
 - [ ] Color output (green for 2xx, red for errors)
 - [ ] Request counter in session
@@ -38,6 +39,7 @@
 - [ ] GraphQL support: `gql { user(id:123) { name } }`
 - [ ] OData support for D365 APIs
 - [ ] Save/load sessions
+- [ ] Autocomplete engine
 - [ ] Export session to curl/script
 - [ ] Config file support
 - [ ] Response filters/transformations
