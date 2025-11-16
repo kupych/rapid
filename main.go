@@ -34,7 +34,7 @@ func main() {
 
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("RAPID v0.2.0 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.2.3 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid [--debug] <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
@@ -73,10 +73,6 @@ func main() {
 				lastWord = words[len(words)-1]
 			}
 
-			if debug {
-				fmt.Printf("\nDEBUG: Listener triggered! key=%q, currentText=%q, lastWord=%q\n", key, currentText, lastWord)
-			}
-
 			// Check for command abbreviations
 			expansions := map[string]string{
 				"delete": "delete(",
@@ -98,9 +94,6 @@ func main() {
 
 			for abbrev, expansion := range expansions {
 				if lastWord == abbrev {
-					if debug {
-						fmt.Printf("DEBUG: Matched! %q -> %q\n", abbrev, expansion)
-					}
 					// Replace just the last word with the expansion
 					prefix := ""
 					if len(words) > 1 {
