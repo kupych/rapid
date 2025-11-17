@@ -34,7 +34,7 @@ func main() {
 
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("RAPID v0.2.3 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.2.4 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid [--debug] <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
@@ -225,8 +225,11 @@ func main() {
 
 					if pathPart != "" {
 						pathPart = strings.TrimPrefix(pathPart, ".")
-						value := gjson.Get(lastResponse, pathPart)
+						value := gjson.Get(response.Body, pathPart)
 						variables[varPart] = value.Value()
+						if debug {
+							fmt.Printf("DEBUG: Extracted %s = %v from path %s\n", varPart, value.Value(), pathPart)
+						}
 					} else {
 						extractVariables(varPart, response.Body, variables)
 					}
