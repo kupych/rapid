@@ -429,7 +429,15 @@ func interpolateVars(path string, variables map[string]interface{}) string {
 	result := path
 	for varName, value := range variables {
 		placeholder := "${" + varName + "}"
-		result = strings.ReplaceAll(result, placeholder, fmt.Sprint(value))
+		// Convert to string, removing quotes if it's a string type
+		var strValue string
+		switch v := value.(type) {
+		case string:
+			strValue = v
+		default:
+			strValue = fmt.Sprint(v)
+		}
+		result = strings.ReplaceAll(result, placeholder, strValue)
 	}
 	return result
 }
