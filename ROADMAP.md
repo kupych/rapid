@@ -23,13 +23,13 @@
 - [x] Custom headers: `g(/api <Custom: value>)`
 - [x] Read headers from .rapidvars (format "$$header:xxx") #v0.2.0
 - [x] Request autocomplete #v0.2.2
+- [x] `?s` session info command
+- [x] `!!` repeat last command
+- [x] Color output (green for 2xx, red for errors)
+- [x] Response history: `$1`, `$2`, etc.
+- [x] Request counter in session #v0.2.6
 - [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
-- [ ] `?s` session info command
-- [ ] `?h` history command #
-- [ ] `!!` repeat last command
-- [ ] Response history: `$1`, `$2`, etc. #v0.3.0
-- [ ] Color output (green for 2xx, red for errors)
-- [ ] Request counter in session
+- [ ] Autocomplete engine #v0.3.0
 - [ ] OpenAPI spec auto-discovery
 - [ ] Endpoint autocomplete from spec
 - [ ] Fuzzy endpoint search
@@ -39,7 +39,6 @@
 - [ ] GraphQL support: `gql { user(id:123) { name } }`
 - [ ] OData support for D365 APIs
 - [ ] Save/load sessions
-- [ ] Autocomplete engine
 - [ ] Export session to curl/script
 - [ ] Config file support
 - [ ] Response filters/transformations
