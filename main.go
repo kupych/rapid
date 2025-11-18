@@ -44,7 +44,7 @@ func main() {
 
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("RAPID v0.2.4 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.2.6 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid [--debug] <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")

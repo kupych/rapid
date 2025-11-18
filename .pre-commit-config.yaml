@@ -1,6 +1,12 @@
 repos:
   - repo: local
     hooks:
+      - id: go-build
+        name: Build go binary
+        entry: go build
+        language: system
+        pass_filenames: false
+
       - id: go-test
         name: Run Go tests
         entry: go test ./...
@@ -10,11 +16,5 @@ repos:
       - id: go-fmt
         name: Run Go format
         entry: go fmt ./...
-        language: system
-        pass_filenames: false
-
-      - id: go-build
-        name: Build go binary
-        entry: go build
         language: system
         pass_filenames: false
