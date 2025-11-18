@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -28,6 +29,15 @@ type Response struct {
 	Status int
 }
 
+const (
+	CReset  = "\033[0m"
+	CRed    = "\033[31m"
+	CGreen  = "\033[32m"
+	CYellow = "\033[33m"
+	CBlue   = "\033[34m"
+	CGray   = "\033[90m"
+)
+
 func main() {
 	debugFlag := flag.Bool("debug", false, "Enable debug mode")
 	flag.Parse()
@@ -44,9 +54,12 @@ func main() {
 
 	debug := *debugFlag
 	variables, headers := loadVariables(".rapidvars")
-	lastResponse := ""
+	requestCount := 0
+	responseHistory := []string{}
+	startTime := time.Now()
 	baseURL := args[0]
 	baseURL = detectScheme(baseURL)
+	lastCommand := ""
 
 	fmt.Printf("RAPID connected to %s\n", baseURL)
 	fmt.Println()
@@ -128,7 +141,15 @@ func main() {
 			break
 		}
 
+		fmt.Print("\r\003")
+
 		input = strings.TrimSpace(input)
+
+		if input == "!!" {
+			input = lastCommand
+		} else {
+			lastCommand = input
+		}
 
 		switch {
 		case input == "exit" || input == "quit" || input == "q" || input == "x":
@@ -142,8 +163,53 @@ func main() {
 			}
 		case input == "?":
 			fmt.Print(showHelp())
-		case input == "$":
-			fmt.Println(lastResponse)
+		case strings.HasPrefix(input, "$"):
+			rest := strings.TrimPrefix(input, "$")
+
+			var historyIndex int
+			var gjsonPath string
+
+			if strings.Contains(rest, ".") {
+				parts := strings.SplitN(rest, ".", 2)
+				if parts[0] == "" {
+					historyIndex = 0
+				} else {
+					var err error
+					historyIndex, err = strconv.Atoi(parts[0])
+					if err != nil {
+						fmt.Println(CRed + "?" + CReset)
+						continue
+					}
+				}
+				gjsonPath = parts[1]
+			} else if rest == "" {
+				historyIndex = 0
+			} else {
+				var err error
+				historyIndex, err = strconv.Atoi(rest)
+				if err != nil {
+					fmt.Println(CRed + "?" + CReset)
+					continue
+				}
+			}
+
+			actualIndex := len(responseHistory) - 1 - historyIndex
+			if actualIndex >= 0 && actualIndex < len(responseHistory) {
+				responseBody := responseHistory[actualIndex]
+
+				if gjsonPath != "" {
+					value := gjson.Get(responseBody, gjsonPath)
+					if value.Exists() {
+						fmt.Println(value.String())
+					} else {
+						fmt.Println(CRed + "?" + CReset)
+					}
+				} else {
+					fmt.Println(responseBody)
+				}
+			} else {
+				fmt.Println(CRed + "?" + CReset)
+			}
 		case input == "?v":
 			if len(variables) == 0 {
 				fmt.Println("{ }")
@@ -163,6 +229,13 @@ func main() {
 		case input == "?hc":
 			headers = make(map[string]string)
 			fmt.Println("< >")
+		case input == "?s":
+			fmt.Printf("\nSession Info:\n")
+			fmt.Printf("  Base URL: %s\n", baseURL)
+			fmt.Printf("  Headers: %d\n", len(headers))
+			fmt.Printf("  Requests: %d\n", requestCount)
+			fmt.Printf("  Uptime: %s\n", time.Since(startTime).Round(time.Second))
+			fmt.Printf("  Variables: %d\n", len(variables))
 		case strings.HasPrefix(input, "?h "):
 			parts := strings.SplitN(strings.TrimPrefix(input, "?h "), ":", 2)
 			if len(parts) == 2 {
@@ -190,16 +263,55 @@ func main() {
 				source := strings.TrimSpace(parts[1])
 
 				if strings.HasPrefix(source, "$") {
-					path := strings.TrimPrefix(source, "$")
-					if path == "" {
-						extractVariables(varPart, lastResponse, variables)
-					} else {
-						path = strings.TrimPrefix(path, ".")
-						value := gjson.Get(lastResponse, path)
-						if debug {
-							fmt.Printf("DEBUG: path='%s', exists=%v, raw=%v\n", path, value.Exists(), value.Raw)
+					// Parse $, $0, $1, $0.path, $1.0.id for extraction
+					rest := strings.TrimPrefix(source, "$")
+
+					var historyIndex int
+					var gjsonPath string
+
+					if strings.Contains(rest, ".") {
+						parts := strings.SplitN(rest, ".", 2)
+						if parts[0] == "" {
+							historyIndex = 0
+						} else {
+							var err error
+							historyIndex, err = strconv.Atoi(parts[0])
+							if err != nil {
+								fmt.Println(CRed + "?" + CReset)
+								continue
+							}
 						}
-						variables[varPart] = value.Value()
+						gjsonPath = parts[1]
+					} else if rest == "" {
+						historyIndex = 0
+					} else {
+						var err error
+						historyIndex, err = strconv.Atoi(rest)
+						if err != nil {
+							fmt.Println(CRed + "?" + CReset)
+							continue
+						}
+					}
+
+					// Get response from history
+					actualIndex := len(responseHistory) - 1 - historyIndex
+					if actualIndex >= 0 && actualIndex < len(responseHistory) {
+						responseBody := responseHistory[actualIndex]
+
+						if gjsonPath == "" {
+							// No path, extract with mapping syntax like {id, name}
+							extractVariables(varPart, responseBody, variables)
+						} else {
+							// Extract specific path
+							value := gjson.Get(responseBody, gjsonPath)
+							if debug {
+								fmt.Printf("DEBUG: path='%s', exists=%v, raw=%v\n", gjsonPath, value.Exists(), value.Raw)
+							}
+							variables[varPart] = value.Value()
+							fmt.Printf("%s = %v\n", varPart, value.Value())
+						}
+					} else {
+						fmt.Println(CRed + "No response at that index" + CReset)
 					}
 					continue
 				} else if isRequest(source) {
@@ -235,7 +347,7 @@ func main() {
 					}
 
 					fmt.Println(response.Body)
-					lastResponse = response.Body
+					responseHistory = append(responseHistory, response.Body)
 					continue
 				} else {
 					variables[varPart] = source
@@ -257,7 +369,7 @@ func main() {
 				continue
 			}
 			fmt.Println(response.Body)
-			lastResponse = response.Body
+			responseHistory = append(responseHistory, response.Body)
 		default:
 			fmt.Println("?")
 		}
@@ -329,51 +441,6 @@ func parseCJSON(condensed string) string {
 
 	jsonBytes, _ := json.Marshal(body)
 	return string(jsonBytes)
-}
-
-func makeRequest(method, url, reqBody string, lastResponse *string) {
-	var body io.Reader
-	if reqBody != "" {
-		body = strings.NewReader(reqBody)
-	}
-
-	req, err := http.NewRequest(method, url, body)
-	if err != nil {
-		fmt.Println("X", err)
-		return
-	}
-
-	if reqBody != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	start := time.Now()
-	resp, err := http.DefaultClient.Do(req)
-	elapsed := time.Since(start)
-
-	if err != nil {
-		fmt.Println("X", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("Could not parse response body: ", err)
-		return
-
-	}
-	fmt.Printf("✓ %d %s (%dms)\n", resp.StatusCode, http.StatusText(resp.StatusCode), elapsed.Milliseconds())
-
-	var data interface{}
-	if err := json.Unmarshal(respBody, &data); err != nil {
-		fmt.Println(string(respBody))
-	} else {
-		pretty, _ := json.MarshalIndent(data, "", " ")
-		fmt.Println(string(pretty))
-		*lastResponse = string(pretty)
-	}
-
 }
 
 func detectScheme(url string) string {
@@ -496,19 +563,7 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(cleanInput)
 		if len(matches) < 2 {
-			return nil, fmt.Errorf("? ... post(/path {key:val})")
-		}
-		path := strings.TrimSpace(matches[1])
-		path = interpolateVars(path, variables)
-		bodyPart := matches[2]
-		body, contentType := parseBody(bodyPart, variables)
-		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "POST", Url: buildURL(baseURL, path)}, nil
-	case strings.HasPrefix(cleanInput, "p("):
-		pattern := `p\(([^\s]+)(?:\s+(.+))?\)`
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(cleanInput)
-		if len(matches) < 2 {
-			return nil, fmt.Errorf("? ... p(/path {key:val})")
+			return nil, fmt.Errorf(CRed + "? ... post(/path {key:val})" + CReset)
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
@@ -520,18 +575,7 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(cleanInput)
 		if len(matches) < 2 {
-			return nil, fmt.Errorf("? ... put(/path {key:val})")
-		}
-		path := strings.TrimSpace(matches[1])
-		path = interpolateVars(path, variables)
-		body, contentType := parseBody(matches[2], variables)
-		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "PUT", Url: buildURL(baseURL, path)}, nil
-	case strings.HasPrefix(cleanInput, "pu("):
-		pattern := `pu\(([^\s]+)(?:\s+(.+))?\)`
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(cleanInput)
-		if len(matches) < 2 {
-			return nil, fmt.Errorf("? ... pu(/path {key:val})")
+			return nil, fmt.Errorf(CRed + "? ... put(/path {key:val})" + CReset)
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
@@ -542,18 +586,7 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(cleanInput)
 		if len(matches) < 2 {
-			return nil, fmt.Errorf("? ... patch(/path {key:val})")
-		}
-		path := strings.TrimSpace(matches[1])
-		path = interpolateVars(path, variables)
-		body, contentType := parseBody(matches[2], variables)
-		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "PATCH", Url: buildURL(baseURL, path)}, nil
-	case strings.HasPrefix(cleanInput, "pa("):
-		pattern := `pa\(([^\s]+)(?:\s+(.+))?\)`
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(cleanInput)
-		if len(matches) < 2 {
-			return nil, fmt.Errorf("? ... pa(/path {key:val})")
+			return nil, fmt.Errorf(CRed + "? ... patch(/path {key:val})" + CReset)
 		}
 		path := strings.TrimSpace(matches[1])
 		path = interpolateVars(path, variables)
@@ -606,7 +639,7 @@ func (r *Request) Execute(variables map[string]interface{}, debug bool) (Respons
 		return Response{}, fmt.Errorf("could not read response body: %w", err)
 	}
 
-	fmt.Printf("✓ %d %s (%dms)\n", resp.StatusCode, http.StatusText(resp.StatusCode), elapsed.Milliseconds())
+	fmt.Printf("%s✓ %d %s (%dms)%s\n", statusColor(resp.StatusCode), resp.StatusCode, http.StatusText(resp.StatusCode), elapsed.Milliseconds(), CReset)
 
 	var data interface{}
 	if err := json.Unmarshal(respBody, &data); err != nil {
@@ -690,4 +723,14 @@ func parseInlineHeaders(input string) (map[string]string, string) {
 	}
 
 	return headers, strings.TrimSpace(re.ReplaceAllString(input, ""))
+}
+
+func statusColor(code int) string {
+	if code >= 400 {
+		return CRed
+	} else if code >= 300 {
+		return CYellow
+	} else {
+		return CGreen
+	}
 }

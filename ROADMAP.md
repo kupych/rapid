@@ -23,13 +23,13 @@
 - [x] Custom headers: `g(/api <Custom: value>)`
 - [x] Read headers from .rapidvars (format "$$header:xxx") #v0.2.0
 - [x] Request autocomplete #v0.2.2
-- [ ] `!!` repeat last command
-- [ ] Color output (green for 2xx, red for errors)
-- [ ] Request counter in session
 - [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
 - [ ] `?s` session info command
 - [ ] `?h` history command #
-- [ ] Response history: `$1`, `$2`, etc.
+- [ ] `!!` repeat last command
+- [ ] Response history: `$1`, `$2`, etc. #v0.3.0
+- [ ] Color output (green for 2xx, red for errors)
+- [ ] Request counter in session
 - [ ] OpenAPI spec auto-discovery
 - [ ] Endpoint autocomplete from spec
 - [ ] Fuzzy endpoint search
