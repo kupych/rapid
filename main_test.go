@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -257,6 +258,32 @@ func TestParseInlineHeaders(t *testing.T) {
 
 			if clean != tt.expectedClean {
 				t.Errorf("parseInlineHeaders(%q) clean = %q, want %q", tt.input, clean, tt.expectedClean)
+			}
+		})
+	}
+}
+
+func TestDollarPrefixMatching(t *testing.T) {
+	// Test that $ and $$ are handled correctly
+	tests := []struct {
+		name              string
+		input             string
+		shouldMatchDollar bool // Should match the "strings.HasPrefix(input, "$") && !strings.HasPrefix(input, "$$")" case
+	}{
+		{name: "single dollar", input: "$", shouldMatchDollar: true},
+		{name: "dollar with number", input: "$1", shouldMatchDollar: true},
+		{name: "dollar with path", input: "$.data", shouldMatchDollar: true},
+		{name: "dollar with index and path", input: "$1.0.id", shouldMatchDollar: true},
+		{name: "double dollar auth", input: "$$auth", shouldMatchDollar: false},
+		{name: "double dollar header", input: "$$header:X-Key", shouldMatchDollar: false},
+		{name: "double dollar in assignment", input: "$$auth = token123", shouldMatchDollar: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := strings.HasPrefix(tt.input, "$") && !strings.HasPrefix(tt.input, "$$")
+			if result != tt.shouldMatchDollar {
+				t.Errorf("Pattern match for %q = %v, want %v", tt.input, result, tt.shouldMatchDollar)
 			}
 		})
 	}

@@ -44,7 +44,7 @@ func main() {
 
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("RAPID v0.2.6 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.2.8 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid [--debug] <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
@@ -163,7 +163,7 @@ func main() {
 			}
 		case input == "?":
 			fmt.Print(showHelp())
-		case strings.HasPrefix(input, "$"):
+		case strings.HasPrefix(input, "$") && !strings.HasPrefix(input, "$$"):
 			rest := strings.TrimPrefix(input, "$")
 
 			var historyIndex int
@@ -262,8 +262,7 @@ func main() {
 				varPart := strings.TrimSpace(parts[0])
 				source := strings.TrimSpace(parts[1])
 
-				if strings.HasPrefix(source, "$") {
-					// Parse $, $0, $1, $0.path, $1.0.id for extraction
+				if strings.HasPrefix(source, "$") && !strings.HasPrefix(source, "$$") {
 					rest := strings.TrimPrefix(source, "$")
 
 					var historyIndex int
