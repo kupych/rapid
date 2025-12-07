@@ -236,6 +236,20 @@ func main() {
 			fmt.Printf("  Requests: %d\n", requestCount)
 			fmt.Printf("  Uptime: %s\n", time.Since(startTime).Round(time.Second))
 			fmt.Printf("  Variables: %d\n", len(variables))
+		case strings.HasPrefix(input, "??"):
+			testInput := strings.TrimPrefix(input, "??")
+			if testInput == "" {
+				testInput = lastCommand
+			}
+
+			engine := NewAutocompleteEngine()
+
+			suggestions := engine.GetSuggestions(testInput, len(testInput))
+
+			fmt.Printf("Suggestions for '%s':\n", testInput)
+			for _, sug := range suggestions {
+				fmt.Printf("  %s - %s\n", sug.Display, sug.Description)
+			}
 		case strings.HasPrefix(input, "?h "):
 			parts := strings.SplitN(strings.TrimPrefix(input, "?h "), ":", 2)
 			if len(parts) == 2 {
@@ -403,6 +417,7 @@ $ - Show last response
 ? - Show this help
 ?v - Show variables
 ?vc - Clear all variables
+??<term> - Preview autocomplete (coming soon!)
 {varName} = $ - Extract variable from last response
 varName = value - Set variable
 varName = - Clear variable
