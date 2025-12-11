@@ -123,10 +123,14 @@ func main() {
 		return line, pos, true
 	})
 
+	// Create autocomplete adapter
+	completer := NewReadlineCompleter(&variables)
+
 	var err error
 	rl, err = readline.NewEx(&readline.Config{
-		Prompt:   "> ",
-		Listener: listener,
+		Prompt:       "> ",
+		Listener:     listener,
+		AutoComplete: completer,
 	})
 
 	if err != nil {
@@ -242,8 +246,7 @@ func main() {
 				testInput = lastCommand
 			}
 
-			engine := NewAutocompleteEngine()
-
+			engine := NewAutocompleteEngine(variables)
 			suggestions := engine.GetSuggestions(testInput, len(testInput))
 
 			fmt.Printf("Suggestions for '%s':\n", testInput)

@@ -1,21 +1,24 @@
 package main
 
-import "testing"
+import (
+	"rapid/providers"
+	"testing"
+)
 
 func TestDetectContext(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
 		cursor   int
-		expected Context
+		expected providers.Context
 	}{
-		{"start of line", "g", 1, ContextStart},
-		{"after equals", "id = ", 5, ContextAfterEquals},
-		{"after equals with text", "id = g", 5, ContextAfterEquals},
-		{"inside paren", "id = get(users", 9, ContextInsideParen},
-		{"after method", "id = get(users)", 15, ContextAfterMethod},
-		{"after dollar", "id = $", 6, ContextAfterDollar},
-		{"inside dollar path", "id = $.dat", 10, ContextAfterDollar},
+		{"start of line", "g", 1, providers.ContextStart},
+		{"after equals", "id = ", 5, providers.ContextAfterEquals},
+		{"after equals with text", "id = g", 5, providers.ContextAfterEquals},
+		{"inside paren", "id = get(users", 9, providers.ContextInsideParen},
+		{"after method", "id = get(users)", 15, providers.ContextAfterMethod},
+		{"after dollar", "id = $", 6, providers.ContextAfterDollar},
+		{"inside dollar path", "id = $.dat", 10, providers.ContextAfterDollar},
 	}
 
 	for _, tt := range tests {
@@ -29,19 +32,19 @@ func TestDetectContext(t *testing.T) {
 }
 
 func TestCommandProvider(t *testing.T) {
-	provider := &CommandProvider{}
+	provider := &providers.Command{}
 
-	suggestions := provider.GetSuggestions("g", ContextStart)
+	suggestions := provider.GetSuggestions("g", providers.ContextStart)
 	if len(suggestions) != 1 || suggestions[0].Text != "get(" {
 		t.Errorf("Expected get( suggestion for prefix 'g'")
 	}
 
-	suggestions = provider.GetSuggestions("p", ContextAfterEquals)
+	suggestions = provider.GetSuggestions("p", providers.ContextAfterEquals)
 	if len(suggestions) < 2 {
 		t.Errorf("Expected post(, patch( and put( for prefix 'p'")
 	}
 
-	suggestions = provider.GetSuggestions("g", ContextInsideParen)
+	suggestions = provider.GetSuggestions("g", providers.ContextInsideParen)
 	if len(suggestions) > 0 {
 		t.Errorf("Expected no suggestions")
 	}
