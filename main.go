@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"rapid/spec"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -64,9 +65,33 @@ func main() {
 	baseURL := args[0]
 	baseURL = detectScheme(baseURL)
 	lastCommand := ""
+	var currentSpec *spec.Spec
 
 	fmt.Printf("RAPID connected to %s\n", baseURL)
 	fmt.Println()
+
+	// Try to restore session
+	cwd, _ := os.Getwd()
+	if session, err := spec.LoadSession(cwd); err == nil && session != nil {
+		// Restore spec if session has one
+		if session.SpecSource != "" {
+			if loadedSpec, err := spec.LoadSpec(session.SpecSource); err == nil {
+				currentSpec = loadedSpec
+				fmt.Printf("%s✓ Restored session with spec: %s v%s (%d endpoints)%s\n",
+					CGreen, currentSpec.Info.Title, currentSpec.Info.Version, len(currentSpec.Paths), CReset)
+			}
+		}
+		// Restore other session data
+		if session.BaseURL != "" {
+			baseURL = session.BaseURL
+		}
+		if session.Variables != nil {
+			variables = session.Variables
+		}
+		if session.Headers != nil {
+			headers = session.Headers
+		}
+	}
 
 	var rl *readline.Instance
 
@@ -128,7 +153,7 @@ func main() {
 	})
 
 	// Create autocomplete adapter
-	completer := NewReadlineCompleter(&variables)
+	completer := NewReadlineCompleter(&variables, currentSpec)
 
 	var err error
 	rl, err = readline.NewEx(&readline.Config{
@@ -257,13 +282,64 @@ func main() {
 			fmt.Printf("  Requests: %d\n", requestCount)
 			fmt.Printf("  Uptime: %s\n", time.Since(startTime).Round(time.Second))
 			fmt.Printf("  Variables: %d\n", len(variables))
+			if currentSpec != nil {
+				fmt.Printf("  Spec: %s v%s (%d endpoints)\n", currentSpec.Info.Title, currentSpec.Info.Version, len(currentSpec.Paths))
+			}
+		case input == "?spec":
+			// Show current spec info
+			if currentSpec == nil {
+				fmt.Println("No OpenAPI spec loaded")
+				fmt.Println("Usage: ?spec <file_or_url>")
+			} else {
+				fmt.Printf("\nOpenAPI Spec:\n")
+				fmt.Printf("  Title: %s\n", currentSpec.Info.Title)
+				fmt.Printf("  Version: %s\n", currentSpec.Info.Version)
+				if currentSpec.Info.Description != "" {
+					fmt.Printf("  Description: %s\n", currentSpec.Info.Description)
+				}
+				fmt.Printf("  Source: %s\n", currentSpec.Source)
+				fmt.Printf("  Endpoints: %d\n", len(currentSpec.Paths))
+				fmt.Printf("  Loaded: %s\n", currentSpec.LoadedAt.Format("2006-01-02 15:04:05"))
+			}
+		case strings.HasPrefix(input, "?spec "):
+			// Load spec from file or URL
+			source := strings.TrimSpace(strings.TrimPrefix(input, "?spec "))
+			if source == "" {
+				fmt.Println("Usage: ?spec <file_or_url>")
+				continue
+			}
+
+			fmt.Printf("Loading spec from %s...\n", source)
+			loadedSpec, err := spec.LoadSpec(source)
+			if err != nil {
+				fmt.Printf("%sX Failed to load spec: %v%s\n", CRed, err, CReset)
+				continue
+			}
+
+			currentSpec = loadedSpec
+			completer.spec = currentSpec // Update completer's spec reference
+
+			fmt.Printf("%s✓ Loaded spec: %s v%s (%d endpoints)%s\n",
+				CGreen, currentSpec.Info.Title, currentSpec.Info.Version, len(currentSpec.Paths), CReset)
+
+			// Save session
+			session := &spec.Session{
+				BaseURL:    baseURL,
+				SpecSource: source,
+				SpecHash:   currentSpec.Hash,
+				Variables:  variables,
+				Headers:    headers,
+			}
+			if err := spec.SaveSession(session, cwd); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to save session: %v\n", err)
+			}
 		case strings.HasPrefix(input, "??"):
 			testInput := strings.TrimPrefix(input, "??")
 			if testInput == "" {
 				testInput = lastCommand
 			}
 
-			engine := NewAutocompleteEngine(variables)
+			engine := NewAutocompleteEngine(variables, currentSpec)
 			suggestions := engine.GetSuggestions(testInput, len(testInput))
 
 			fmt.Printf("Suggestions for '%s':\n", testInput)
@@ -599,6 +675,8 @@ $ - Show last response
 ? - Show this help
 ?v - Show variables
 ?vc - Clear all variables
+?spec - Show current OpenAPI spec info
+?spec <file_or_url> - Load OpenAPI specification
 ??<term> - Preview autocomplete (coming soon!)
 {varName} = $ - Extract variable from last response
 varName = value - Set variable

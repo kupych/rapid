@@ -2,6 +2,7 @@ package main
 
 import (
 	"rapid/providers"
+	"rapid/spec"
 	"sort"
 	"strings"
 )
@@ -100,12 +101,23 @@ func (e *AutocompleteEngine) GetSuggestions(input string, cursorPos int) []provi
 	return all
 }
 
-func NewAutocompleteEngine(variables map[string]interface{}) *AutocompleteEngine {
+func NewAutocompleteEngine(variables map[string]interface{}, openAPISpec *spec.Spec) *AutocompleteEngine {
+	providerList := []providers.SuggestionProvider{
+		&providers.Command{},
+	}
+
+	// Add OpenAPI provider if spec is loaded
+	if openAPISpec != nil {
+		providerList = append(providerList, &providers.OpenAPI{Spec: openAPISpec})
+	}
+
+	// Add remaining providers
+	providerList = append(providerList,
+		&providers.MetaCommand{},
+		&providers.Variables{Vars: variables},
+	)
+
 	return &AutocompleteEngine{
-		providers: []providers.SuggestionProvider{
-			&providers.Command{},
-			&providers.MetaCommand{},
-			&providers.Variables{Vars: variables},
-		},
+		providers: providerList,
 	}
 }

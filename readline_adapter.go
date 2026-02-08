@@ -1,14 +1,18 @@
 package main
 
+import "rapid/spec"
+
 // ReadlineCompleter adapts our AutocompleteEngine to readline's interface
 type ReadlineCompleter struct {
 	engine    *AutocompleteEngine
 	variables *map[string]interface{} // Pointer to live variables
+	spec      *spec.Spec              // Pointer to current OpenAPI spec
 }
 
-func NewReadlineCompleter(variables *map[string]interface{}) *ReadlineCompleter {
+func NewReadlineCompleter(variables *map[string]interface{}, openAPISpec *spec.Spec) *ReadlineCompleter {
 	return &ReadlineCompleter{
 		variables: variables,
+		spec:      openAPISpec,
 	}
 }
 
@@ -16,8 +20,8 @@ func NewReadlineCompleter(variables *map[string]interface{}) *ReadlineCompleter 
 // line = current buffer, pos = cursor position
 // Returns: suggestions as [][]rune, and length to replace
 func (c *ReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
-	// Recreate engine with current variables
-	c.engine = NewAutocompleteEngine(*c.variables)
+	// Recreate engine with current variables and spec
+	c.engine = NewAutocompleteEngine(*c.variables, c.spec)
 
 	input := string(line)
 	suggestions := c.engine.GetSuggestions(input, pos)
