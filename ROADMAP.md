@@ -29,7 +29,7 @@
 - [x] Response history: `$1`, `$2`, etc.
 - [x] Request counter in session #v0.2.6
 - [x] Pipe output to clipboard or file 
-- [x] Open output in text editor #v0.3.1
+- [x] Open output in text editor #v0.3.2
 - [ ] Autocomplete engine #v0.4.0
 - [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
 - [ ] OpenAPI spec auto-discovery
