@@ -28,7 +28,9 @@
 - [x] Color output (green for 2xx, red for errors)
 - [x] Response history: `$1`, `$2`, etc.
 - [x] Request counter in session #v0.2.6
-- [ ] Autocomplete engine #v0.3.0
+- [x] Pipe output to clipboard or file 
+- [x] Open output in text editor #v0.3.1
+- [ ] Autocomplete engine #v0.4.0
 - [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
 - [ ] OpenAPI spec auto-discovery
 - [ ] Endpoint autocomplete from spec

@@ -4,13 +4,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/atotto/clipboard"
 	"github.com/chzyer/readline"
 	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -168,7 +172,9 @@ func main() {
 		case input == "?":
 			fmt.Print(showHelp())
 		case strings.HasPrefix(input, "$") && !strings.HasPrefix(input, "$$"):
-			rest := strings.TrimPrefix(input, "$")
+			// Parse pipe operator first
+			cleanInput, pipeOp, destination := parsePipeOperator(input)
+			rest := strings.TrimPrefix(cleanInput, "$")
 
 			var historyIndex int
 			var gjsonPath string
@@ -200,16 +206,25 @@ func main() {
 			actualIndex := len(responseHistory) - 1 - historyIndex
 			if actualIndex >= 0 && actualIndex < len(responseHistory) {
 				responseBody := responseHistory[actualIndex]
+				var outputContent string
 
 				if gjsonPath != "" {
 					value := gjson.Get(responseBody, gjsonPath)
 					if value.Exists() {
-						fmt.Println(value.String())
+						outputContent = value.String()
+						fmt.Println(outputContent)
 					} else {
 						fmt.Println(CRed + "?" + CReset)
+						continue
 					}
 				} else {
-					fmt.Println(responseBody)
+					outputContent = responseBody
+					fmt.Println(outputContent)
+				}
+
+				// Handle pipe if requested
+				if err := handlePipe(outputContent, pipeOp, destination); err != nil {
+					fmt.Printf("%sX %v%s\n", CRed, err, CReset)
 				}
 			} else {
 				fmt.Println(CRed + "?" + CReset)
@@ -274,7 +289,10 @@ func main() {
 			delete(variables, varToClear)
 			fmt.Printf("x %s\n", varToClear)
 		case strings.Contains(input, " = "):
-			parts := strings.SplitN(input, " = ", 2)
+			// Parse pipe operator from full input first
+			cleanInput, pipeOp, destination := parsePipeOperator(input)
+
+			parts := strings.SplitN(cleanInput, " = ", 2)
 			if len(parts) == 2 {
 				varPart := strings.TrimSpace(parts[0])
 				source := strings.TrimSpace(parts[1])
@@ -364,6 +382,11 @@ func main() {
 
 					fmt.Println(response.Body)
 					responseHistory = append(responseHistory, response.Body)
+
+					// Handle pipe if requested
+					if err := handlePipe(response.Body, pipeOp, destination); err != nil {
+						fmt.Printf("%sX %v%s\n", CRed, err, CReset)
+					}
 					continue
 				} else {
 					variables[varPart] = source
@@ -374,7 +397,10 @@ func main() {
 				continue
 			}
 		case isRequest(input):
-			req, err := NewRequest(input, baseURL, variables, headers, debug)
+			// Parse pipe operator
+			cleanInput, pipeOp, destination := parsePipeOperator(input)
+
+			req, err := NewRequest(cleanInput, baseURL, variables, headers, debug)
 			if err != nil {
 				fmt.Println("X", err)
 				continue
@@ -386,10 +412,155 @@ func main() {
 			}
 			fmt.Println(response.Body)
 			responseHistory = append(responseHistory, response.Body)
+
+			// Handle pipe if requested
+			if err := handlePipe(response.Body, pipeOp, destination); err != nil {
+				fmt.Printf("%sX %v%s\n", CRed, err, CReset)
+			}
 		default:
 			fmt.Println("?")
 		}
 	}
+}
+
+// parsePipeOperator extracts pipe operator (>, >>) and destination from input
+// Returns: cleanInput (without pipe), pipeOp (">", ">>", or ""), destination (file path or "")
+func parsePipeOperator(input string) (cleanInput string, pipeOp string, destination string) {
+	// Check for append operator first (>>)
+	if idx := strings.Index(input, ">>"); idx != -1 {
+		cleanInput = strings.TrimSpace(input[:idx])
+		destination = strings.TrimSpace(input[idx+2:])
+		pipeOp = ">>"
+		return
+	}
+
+	// Check for regular pipe operator (>)
+	if idx := strings.Index(input, ">"); idx != -1 {
+		cleanInput = strings.TrimSpace(input[:idx])
+		destination = strings.TrimSpace(input[idx+1:])
+		pipeOp = ">"
+		return
+	}
+
+	// No pipe operator found
+	cleanInput = input
+	return
+}
+
+// handlePipe handles piping content to clipboard or file
+// If destination is empty, pipes to clipboard
+// If destination is a path, pipes to file (overwrite with >, append with >>)
+func handlePipe(content string, pipeOp string, destination string) error {
+	if pipeOp == "" {
+		return nil // No piping requested
+	}
+
+	// Empty destination means clipboard
+	if destination == "" {
+		if err := clipboard.WriteAll(content); err != nil {
+			return fmt.Errorf("failed to copy to clipboard: %w", err)
+		}
+		fmt.Printf("%s✓ Copied to clipboard%s\n", CGreen, CReset)
+		return nil
+	}
+
+	// Special destination "e" means open in editor
+	if destination == "e" {
+		return openInEditor(content)
+	}
+
+	// Expand ~ to home directory
+	if strings.HasPrefix(destination, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		destination = filepath.Join(homeDir, destination[2:])
+	}
+
+	// Write to file
+	if pipeOp == ">>" {
+		// Append mode
+		f, err := os.OpenFile(destination, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to open file for append: %w", err)
+		}
+		defer f.Close()
+
+		if _, err := f.WriteString(content + "\n"); err != nil {
+			return fmt.Errorf("failed to append to file: %w", err)
+		}
+		fmt.Printf("%s✓ Appended to %s%s\n", CGreen, destination, CReset)
+	} else {
+		// Overwrite mode
+		if err := os.WriteFile(destination, []byte(content), 0644); err != nil {
+			return fmt.Errorf("failed to write to file: %w", err)
+		}
+		fmt.Printf("%s✓ Saved to %s%s\n", CGreen, destination, CReset)
+	}
+
+	return nil
+}
+
+// getEditor returns the editor to use, checking $EDITOR first, then platform-specific defaults
+func getEditor() string {
+	// Try $EDITOR environment variable first
+	if editor := os.Getenv("EDITOR"); editor != "" {
+		return editor
+	}
+
+	// Platform-specific fallbacks
+	switch runtime.GOOS {
+	case "windows":
+		return "notepad.exe"
+	default: // darwin, linux, freebsd, etc.
+		// Try common editors in order of preference
+		for _, editor := range []string{"vim", "nano", "vi"} {
+			if _, err := exec.LookPath(editor); err == nil {
+				return editor
+			}
+		}
+		return "vi" // Last resort fallback
+	}
+}
+
+// openInEditor writes content to a temporary file and opens it in the user's editor
+func openInEditor(content string) error {
+	// Detect if content is JSON for appropriate file extension
+	fileExt := ".txt"
+	if json.Valid([]byte(content)) {
+		fileExt = ".json"
+	}
+
+	// Create temporary file
+	tmpFile, err := os.CreateTemp("", "rapid-*"+fileExt)
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+
+	// Write content to temp file
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write to temp file: %w", err)
+	}
+	tmpFile.Close()
+
+	// Get editor
+	editor := getEditor()
+
+	// Open editor (blocking - wait for user to close)
+	cmd := exec.Command(editor, tmpPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to open editor: %w", err)
+	}
+
+	fmt.Printf("%s✓ Opened in %s: %s%s\n", CGreen, editor, tmpPath, CReset)
+	return nil
 }
 
 func buildURL(baseURL, path string) string {
@@ -415,6 +586,12 @@ pu(<path> {key:val}) - PUT request
 pa(<path> {key:val}) - PATCH request
 d(<path>) - DELETE request
 
+Piping:
+<command> > - Pipe output to clipboard
+<command> >e - Pipe output to editor ($EDITOR)
+<command> > file.txt - Pipe output to file (overwrite)
+<command> >> file.txt - Pipe output to file (append)
+
 Metacommands:
 $ - Show last response
 ? - Show this help
@@ -431,6 +608,11 @@ Examples:
 
   g(users)
   g(users/1)
+  g(users) >
+  g(users) >e
+  g(users) > users.json
+  $ > backup.json
+  $.data.users >> all_users.json
   $
 	{id, email} = $
 	g(users/${id})
