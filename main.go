@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"rapid/providers"
 	"rapid/spec"
 	"regexp"
 	"runtime"
@@ -300,6 +301,15 @@ func main() {
 				fmt.Printf("  Source: %s\n", currentSpec.Source)
 				fmt.Printf("  Endpoints: %d\n", len(currentSpec.Paths))
 				fmt.Printf("  Loaded: %s\n", currentSpec.LoadedAt.Format("2006-01-02 15:04:05"))
+
+				// Show detected prefix
+				provider := &providers.OpenAPI{Spec: currentSpec}
+				detectedPrefix := provider.DetectBasePrefix()
+				if detectedPrefix != "" {
+					fmt.Printf("  Base Prefix: %s (stripped from suggestions)\n", detectedPrefix)
+				} else {
+					fmt.Printf("  Base Prefix: (none detected)\n")
+				}
 			}
 		case strings.HasPrefix(input, "?spec "):
 			// Load spec from file or URL
@@ -361,6 +371,19 @@ func main() {
 		case input == "?vc" || input == "?clear":
 			variables = make(map[string]interface{})
 			fmt.Println("{ }")
+		case input == "?sc":
+			// Clear session (spec, variables, headers)
+			currentSpec = nil
+			completer.spec = nil
+			variables = make(map[string]interface{})
+			headers = make(map[string]string)
+
+			// Delete session file
+			if err := spec.DeleteSession(cwd); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to delete session: %v\n", err)
+			}
+
+			fmt.Printf("%s✓ Session cleared%s\n", CGreen, CReset)
 		case strings.HasSuffix(input, "="):
 			parts := strings.SplitN(input, "=", 2)
 			varToClear := strings.TrimSpace(parts[0])
@@ -675,6 +698,7 @@ $ - Show last response
 ? - Show this help
 ?v - Show variables
 ?vc - Clear all variables
+?sc - Clear session (spec, variables, headers)
 ?spec - Show current OpenAPI spec info
 ?spec <file_or_url> - Load OpenAPI specification
 ??<term> - Preview autocomplete (coming soon!)

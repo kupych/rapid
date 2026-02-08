@@ -4,11 +4,11 @@ import "time"
 
 // Spec represents a parsed OpenAPI specification
 type Spec struct {
-	Version   string                // OpenAPI version (e.g., "3.0.0", "3.1.0")
-	Info      SpecInfo              // API info (title, description, version)
-	Servers   []Server              // API servers
-	Paths     map[string]PathItem   // API endpoints keyed by path
-	Components Components           // Reusable components
+	Version    string              // OpenAPI version (e.g., "3.0.0", "3.1.0")
+	Info       SpecInfo            // API info (title, description, version)
+	Servers    []Server            // API servers
+	Paths      map[string]PathItem // API endpoints keyed by path
+	Components Components          // Reusable components
 
 	Source   string    // File path or URL where spec was loaded from
 	LoadedAt time.Time // When the spec was loaded
@@ -53,37 +53,37 @@ type ServerVariable struct {
 
 // PathItem represents an API endpoint
 type PathItem struct {
-	Path       string        // The path (e.g., "/users")
-	Summary    string        // Summary for the path
-	Parameters []Parameter   // Path/query parameters
-	Get        *Operation    // GET operation
-	Post       *Operation    // POST operation
-	Put        *Operation    // PUT operation
-	Patch      *Operation    // PATCH operation
-	Delete     *Operation    // DELETE operation
-	Head       *Operation    // HEAD operation
-	Options    *Operation    // OPTIONS operation
-	Trace      *Operation    // TRACE operation
+	Path       string      // The path (e.g., "/users")
+	Summary    string      // Summary for the path
+	Parameters []Parameter // Path/query parameters
+	Get        *Operation  // GET operation
+	Post       *Operation  // POST operation
+	Put        *Operation  // PUT operation
+	Patch      *Operation  // PATCH operation
+	Delete     *Operation  // DELETE operation
+	Head       *Operation  // HEAD operation
+	Options    *Operation  // OPTIONS operation
+	Trace      *Operation  // TRACE operation
 }
 
 // Operation represents an HTTP operation
 type Operation struct {
-	Summary     string       // Short summary of what the operation does
-	Description string       // Longer description
-	OperationID string       // Unique operation identifier
-	Tags        []string     // Operation tags for categorization
-	Parameters  []Parameter  // Operation parameters
-	RequestBody *RequestBody // Request body schema and media types
+	Summary     string              // Short summary of what the operation does
+	Description string              // Longer description
+	OperationID string              // Unique operation identifier
+	Tags        []string            // Operation tags for categorization
+	Parameters  []Parameter         // Operation parameters
+	RequestBody *RequestBody        // Request body schema and media types
 	Responses   map[string]Response // Responses keyed by status code
 	Deprecated  bool
 }
 
 // Parameter represents a request parameter
 type Parameter struct {
-	Name        string  // Parameter name
-	In          string  // Where the parameter is ("query", "header", "path", "cookie")
-	Description string  // Parameter description
-	Required    bool    // Whether parameter is required
+	Name        string // Parameter name
+	In          string // Where the parameter is ("query", "header", "path", "cookie")
+	Description string // Parameter description
+	Required    bool   // Whether parameter is required
 	Deprecated  bool
 	Schema      *Schema // Parameter schema
 	Example     interface{}
@@ -138,11 +138,11 @@ type Link struct {
 
 // Schema represents a JSON schema
 type Schema struct {
-	Type        string               // "object", "array", "string", "integer", "number", "boolean", "null"
-	Format      string               // e.g., "date", "date-time", "email"
-	Description string               // Schema description
-	Default     interface{}          // Default value
-	Example     interface{}          // Example value
+	Type        string      // "object", "array", "string", "integer", "number", "boolean", "null"
+	Format      string      // e.g., "date", "date-time", "email"
+	Description string      // Schema description
+	Default     interface{} // Default value
+	Example     interface{} // Example value
 
 	// For objects
 	Properties map[string]*Schema // Object properties

@@ -37,7 +37,7 @@ func (c *ReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
 	var results [][]rune
 	for _, sug := range suggestions {
 		// readline wants just the SUFFIX to add after removing prefix
-		// If suggestion is "get(" and prefix is "g", return "et("
+		// Now that we require "/" for path suggestions, all suggestions should start with prefix
 		if len(sug.Text) > len(prefix) {
 			suffix := sug.Text[len(prefix):]
 			results = append(results, []rune(suffix))
