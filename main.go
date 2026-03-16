@@ -48,7 +48,7 @@ func main() {
 
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("RAPID v0.3.2 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.4.1 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid [--debug] <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
@@ -812,7 +812,12 @@ func (r *Request) Execute(variables map[string]interface{}, debug bool) (Respons
 	}
 
 	if authToken, exists := variables["$$auth"]; exists {
-		req.Header.Set("Authorization", "Bearer "+fmt.Sprint(authToken))
+		token := fmt.Sprint(authToken)
+		if parts := strings.SplitN(token, ":", 2); len(parts) == 2 {
+			req.SetBasicAuth(parts[0], parts[1])
+		} else {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 	}
 	if r.Body != "" && r.ContentType != "" {
 		req.Header.Set("Content-Type", r.ContentType)
