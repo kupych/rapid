@@ -288,3 +288,67 @@ func TestDollarPrefixMatching(t *testing.T) {
 		})
 	}
 }
+
+func TestLookupVariable(t *testing.T) {
+	variables := map[string]interface{}{
+		"token": "abc123",
+		"count": float64(7),
+		"user": map[string]interface{}{
+			"name":    "amy",
+			"address": map[string]interface{}{"city": "berlin"},
+		},
+		"$$auth": "secret",
+	}
+
+	// Scalars come out bare
+	if out, ok := lookupVariable("token", variables); !ok || out != "abc123" {
+		t.Errorf("token: got %q ok=%v", out, ok)
+	}
+	if out, ok := lookupVariable("count", variables); !ok || out != "7" {
+		t.Errorf("count: got %q ok=%v", out, ok)
+	}
+
+	// Objects pretty-print
+	out, ok := lookupVariable("user", variables)
+	if !ok || !strings.Contains(out, "\n") || !strings.Contains(out, "\"name\": \"amy\"") {
+		t.Errorf("user: expected pretty JSON, got %q", out)
+	}
+
+	// Path access drills in
+	if out, ok := lookupVariable("user.address.city", variables); !ok || out != "berlin" {
+		t.Errorf("user.address.city: got %q ok=%v", out, ok)
+	}
+
+	// Special variables are reachable too
+	if out, ok := lookupVariable("$$auth", variables); !ok || out != "secret" {
+		t.Errorf("$$auth: got %q ok=%v", out, ok)
+	}
+
+	// Misses report not-ok
+	if _, ok := lookupVariable("nope", variables); ok {
+		t.Error("expected unknown variable to be not-ok")
+	}
+	if _, ok := lookupVariable("user.nope", variables); ok {
+		t.Error("expected bad path to be not-ok")
+	}
+	if _, ok := lookupVariable("token.x", variables); ok {
+		t.Error("expected path into scalar to be not-ok")
+	}
+}
+
+func TestPreviewValue(t *testing.T) {
+	if got := previewValue("short"); got != "short" {
+		t.Errorf("short value: got %q", got)
+	}
+
+	long := strings.Repeat("x", 100)
+	got := previewValue(long)
+	if len([]rune(got)) != 60 || !strings.HasSuffix(got, "...") {
+		t.Errorf("long value: got %d chars %q", len([]rune(got)), got)
+	}
+
+	obj := map[string]interface{}{"a": float64(1)}
+	if got := previewValue(obj); got != `{"a":1}` {
+		t.Errorf("object: got %q", got)
+	}
+}

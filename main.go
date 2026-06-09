@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -48,7 +49,7 @@ func main() {
 
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("RAPID v0.4.1 - Rapid API Dialogue")
+		fmt.Println("RAPID v0.5.0 - Rapid API Dialogue")
 		fmt.Println("Usage: rapid [--debug] <base-url>")
 		fmt.Println()
 		fmt.Println("Warning: this is a WIP. More functionality coming soon.")
@@ -58,6 +59,7 @@ func main() {
 
 	debug := *debugFlag
 	variables, headers := loadVariables(".rapidvars")
+	endpoints := LoadEndpointStore()
 	requestCount := 0
 	responseHistory := []string{}
 	startTime := time.Now()
@@ -70,8 +72,20 @@ func main() {
 
 	var rl *readline.Instance
 
-	// Listener for command expansion
+	// Create autocomplete adapter and inline suggestion painter
+	completer := NewReadlineCompleter(&variables, &headers, &responseHistory, endpoints, baseURL)
+	painter := NewGhostPainter(completer, "> ")
+
+	// Listener for command expansion and ghost text acceptance
 	listener := readline.FuncListener(func(line []rune, pos int, key rune) (newLine []rune, newPos int, ok bool) {
+		// Right arrow / Ctrl+F at end of line accepts the inline suggestion
+		if key == readline.CharForward && pos == len(line) {
+			if ghost := painter.Ghost(); len(ghost) > 0 {
+				accepted := append(append([]rune{}, line...), ghost...)
+				return accepted, len(accepted), true
+			}
+		}
+
 		// Trigger expansion on space, tab, or open paren
 		if key == ' ' || key == '\t' || key == '(' {
 			// Get current text (line already includes the new key, so we need to exclude it)
@@ -127,14 +141,12 @@ func main() {
 		return line, pos, true
 	})
 
-	// Create autocomplete adapter
-	completer := NewReadlineCompleter(&variables)
-
 	var err error
 	rl, err = readline.NewEx(&readline.Config{
 		Prompt:       "> ",
 		Listener:     listener,
 		AutoComplete: completer,
+		Painter:      painter,
 	})
 
 	if err != nil {
@@ -234,8 +246,13 @@ func main() {
 				fmt.Println("{ }")
 				continue
 			}
-			for name, value := range variables {
-				fmt.Printf("%s = %v\n", name, value)
+			names := make([]string, 0, len(variables))
+			for name := range variables {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				fmt.Printf("%s = %s\n", name, previewValue(variables[name]))
 			}
 		case input == "?h":
 			if len(headers) == 0 {
@@ -248,6 +265,24 @@ func main() {
 		case input == "?hc":
 			headers = make(map[string]string)
 			fmt.Println("< >")
+		case input == "?e":
+			known := endpoints.ForBase(baseURL)
+			if len(known) == 0 {
+				fmt.Println("( )")
+				continue
+			}
+			paths := make([]string, 0, len(known))
+			for path := range known {
+				paths = append(paths, path)
+			}
+			sort.Strings(paths)
+			for _, path := range paths {
+				fmt.Printf("%-40s %s%s%s\n", path, CGray, strings.Join(known[path], ", "), CReset)
+			}
+		case input == "?ec":
+			endpoints.Clear(baseURL)
+			endpoints.Save()
+			fmt.Println("( )")
 		case input == "?s":
 			fmt.Printf("\nSession Info:\n")
 			fmt.Printf("  Base URL: %s\n", baseURL)
@@ -261,12 +296,15 @@ func main() {
 				testInput = lastCommand
 			}
 
-			engine := NewAutocompleteEngine(variables)
+			engine := NewAutocompleteEngine(variables, headers, &responseHistory, endpoints.ForBase(baseURL))
 			suggestions := engine.GetSuggestions(testInput, len(testInput))
 
 			fmt.Printf("Suggestions for '%s':\n", testInput)
+			if len(suggestions) == 0 {
+				fmt.Println("  (none)")
+			}
 			for _, sug := range suggestions {
-				fmt.Printf("  %s - %s\n", sug.Display, sug.Description)
+				fmt.Printf("  %-20s %s%s%s\n", sug.Display, CGray, sug.Description, CReset)
 			}
 		case strings.HasPrefix(input, "?h "):
 			parts := strings.SplitN(strings.TrimPrefix(input, "?h "), ":", 2)
@@ -342,7 +380,7 @@ func main() {
 								fmt.Printf("DEBUG: path='%s', exists=%v, raw=%v\n", gjsonPath, value.Exists(), value.Raw)
 							}
 							variables[varPart] = value.Value()
-							fmt.Printf("%s = %v\n", varPart, value.Value())
+							fmt.Printf("%s = %s\n", varPart, previewValue(value.Value()))
 						}
 					} else {
 						fmt.Println(CRed + "No response at that index" + CReset)
@@ -367,6 +405,10 @@ func main() {
 					if err != nil {
 						fmt.Println("X", err)
 						continue
+					}
+
+					if response.Status < 400 && endpoints.Add(baseURL, req.Method, extractEndpointPath(requestPart)) {
+						endpoints.Save()
 					}
 
 					if pathPart != "" {
@@ -410,6 +452,11 @@ func main() {
 				fmt.Println("X", err)
 				continue
 			}
+
+			if response.Status < 400 && endpoints.Add(baseURL, req.Method, extractEndpointPath(cleanInput)) {
+				endpoints.Save()
+			}
+
 			fmt.Println(response.Body)
 			responseHistory = append(responseHistory, response.Body)
 
@@ -418,7 +465,17 @@ func main() {
 				fmt.Printf("%sX %v%s\n", CRed, err, CReset)
 			}
 		default:
-			fmt.Println("?")
+			// Bare variable name, optionally with a path and pipe: `user.email >`
+			cleanInput, pipeOp, destination := parsePipeOperator(input)
+			output, ok := lookupVariable(cleanInput, variables)
+			if !ok {
+				fmt.Println("?")
+				continue
+			}
+			fmt.Println(output)
+			if err := handlePipe(output, pipeOp, destination); err != nil {
+				fmt.Printf("%sX %v%s\n", CRed, err, CReset)
+			}
 		}
 	}
 }
@@ -563,6 +620,65 @@ func openInEditor(content string) error {
 	return nil
 }
 
+// lookupVariable resolves a bare variable reference like `user` or
+// `user.address.city`, pretty-printing structured values
+func lookupVariable(input string, variables map[string]interface{}) (string, bool) {
+	name, path := input, ""
+	if i := strings.Index(input, "."); i != -1 {
+		name, path = input[:i], input[i+1:]
+	}
+
+	value, exists := variables[name]
+	if !exists {
+		return "", false
+	}
+
+	if path == "" {
+		return formatVarValue(value), true
+	}
+
+	jsonBytes, err := json.Marshal(value)
+	if err != nil {
+		return "", false
+	}
+	result := gjson.GetBytes(jsonBytes, path)
+	if !result.Exists() {
+		return "", false
+	}
+	return formatVarValue(result.Value()), true
+}
+
+// formatVarValue pretty-prints structured values, scalars come out bare
+func formatVarValue(value interface{}) string {
+	switch value.(type) {
+	case map[string]interface{}, []interface{}:
+		if pretty, err := json.MarshalIndent(value, "", " "); err == nil {
+			return string(pretty)
+		}
+	}
+	return fmt.Sprint(value)
+}
+
+// previewValue renders a value as a single truncated line for ?v listings
+func previewValue(value interface{}) string {
+	var s string
+	switch value.(type) {
+	case map[string]interface{}, []interface{}:
+		if compact, err := json.Marshal(value); err == nil {
+			s = string(compact)
+		} else {
+			s = fmt.Sprint(value)
+		}
+	default:
+		s = fmt.Sprint(value)
+	}
+
+	if r := []rune(s); len(r) > 60 {
+		s = string(r[:57]) + "..."
+	}
+	return s
+}
+
 func buildURL(baseURL, path string) string {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
@@ -597,10 +713,15 @@ $ - Show last response
 ? - Show this help
 ?v - Show variables
 ?vc - Clear all variables
-??<term> - Preview autocomplete (coming soon!)
+?e - Show learned endpoints (autocompleted in requests)
+?ec - Forget learned endpoints for this base URL
+??<term> - Preview autocomplete suggestions
+Tab completes, right arrow accepts the inline suggestion
 {varName} = $ - Extract variable from last response
 varName = value - Set variable
 varName = - Clear variable
+varName - Show variable value (pipes work: varName >e)
+varName.path - Drill into object variables
 
 exit,quit,q,x - Exit rapid
 
@@ -669,7 +790,7 @@ func extractVariables(varPart string, response string, variables map[string]inte
 		value := gjson.Get(response, responseUrl)
 		if value.Exists() {
 			variables[varName] = value.Value()
-			fmt.Printf("%s = %v\n", varName, value.Value())
+			fmt.Printf("%s = %s\n", varName, previewValue(value.Value()))
 		}
 	}
 }
@@ -825,7 +946,7 @@ func (r *Request) Execute(variables map[string]interface{}, debug bool) (Respons
 
 	if debug {
 		fmt.Printf("DEBUG: %s %s\n", r.Method, r.Url)
-		fmt.Printf("DEBUG: Headers: %v\n", r.Headers)
+		fmt.Printf("DEBUG: Headers: %v\n", req.Header)
 		fmt.Printf("DEBUG: Body: %v\n", r.Body)
 	}
 

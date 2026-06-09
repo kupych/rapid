@@ -31,12 +31,14 @@
 - [x] Pipe output to clipboard or file 
 - [x] Open output in text editor #v0.3.2
 - [x] Basic auth #v0.4.1
-- [ ] Autocomplete engine #v0.5.0
+- [x] Autocomplete engine
+- [x] Learn endpoints from successful requests (per base URL, ID segments -> {id} templates, ~/.rapid)
 - [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
 - [ ] OpenAPI spec auto-discovery
 - [ ] Endpoint autocomplete from spec
 - [ ] Fuzzy endpoint search
-- [ ] Ghost text/inline suggestions
+- [x] Ghost text/inline suggestions (right arrow accepts)
+- [x] Bare variable echo: `var`, `var.path`, pipeable; ?v shows truncated previews #v0.5.0
 - [ ] Syntax highlighting
 - [ ] Response metadata: `$$.status`, `$$.headers`, `$$.time`
 - [ ] GraphQL support: `gql { user(id:123) { name } }`
