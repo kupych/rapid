@@ -39,6 +39,8 @@
 - [ ] Fuzzy endpoint search
 - [x] Ghost text/inline suggestions (right arrow accepts)
 - [x] Bare variable echo: `var`, `var.path`, pipeable; ?v shows truncated previews #v0.5.0
+- [x] Nested CJSON support
+- [x] Type inference
 - [ ] Syntax highlighting
 - [ ] Response metadata: `$$.status`, `$$.headers`, `$$.time`
 - [ ] GraphQL support: `gql { user(id:123) { name } }`

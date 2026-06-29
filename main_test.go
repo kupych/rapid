@@ -99,9 +99,9 @@ func TestParseCJSON(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "simple object",
+			name:     "simple object with inferred number",
 			input:    "{name:john,age:30}",
-			expected: `{"age":"30","name":"john"}`,
+			expected: `{"age":30,"name":"john"}`,
 		},
 		{
 			name:     "single field",
@@ -111,7 +111,72 @@ func TestParseCJSON(t *testing.T) {
 		{
 			name:     "with spaces",
 			input:    "{ name : john , age : 30 }",
-			expected: `{"age":"30","name":"john"}`,
+			expected: `{"age":30,"name":"john"}`,
+		},
+		{
+			name:     "bools null and float",
+			input:    "{active:true,deleted:false,note:null,ratio:1.5}",
+			expected: `{"active":true,"deleted":false,"note":null,"ratio":1.5}`,
+		},
+		{
+			name:     "quoted forces string",
+			input:    `{zip:"007",flag:"true"}`,
+			expected: `{"flag":"true","zip":"007"}`,
+		},
+		{
+			name:     "single quotes force string",
+			input:    "{a:'2',b:'true'}",
+			expected: `{"a":"2","b":"true"}`,
+		},
+		{
+			name:     "apostrophe in bare word stays literal",
+			input:    "{name:O'Brien}",
+			expected: `{"name":"O'Brien"}`,
+		},
+		{
+			name:     "long id stays string",
+			input:    "{id:123456789012345678901234}",
+			expected: `{"id":"123456789012345678901234"}`,
+		},
+		{
+			name:     "scalar array with inference",
+			input:    "{tags[a,b,c],nums[1,2,3]}",
+			expected: `{"nums":[1,2,3],"tags":["a","b","c"]}`,
+		},
+		{
+			name:     "array with colon",
+			input:    "{tags:[a,b]}",
+			expected: `{"tags":["a","b"]}`,
+		},
+		{
+			name:     "array of objects",
+			input:    "{users[{name:amy},{name:bob}]}",
+			expected: `{"users":[{"name":"amy"},{"name":"bob"}]}`,
+		},
+		{
+			name:     "quoted string with comma",
+			input:    `{msg:"hello, world"}`,
+			expected: `{"msg":"hello, world"}`,
+		},
+		{
+			name:     "nested without colons",
+			input:    "{a{b{c:d}}}",
+			expected: `{"a":{"b":{"c":"d"}}}`,
+		},
+		{
+			name:     "nested with colons",
+			input:    "{a:{b:{c:d}}}",
+			expected: `{"a":{"b":{"c":"d"}}}`,
+		},
+		{
+			name:     "mixed scalar and nested",
+			input:    "{name:amy,address{city:nyc,zip:10001}}",
+			expected: `{"address":{"city":"nyc","zip":10001},"name":"amy"}`,
+		},
+		{
+			name:     "unclosed nested input",
+			input:    "{a{b{c:d",
+			expected: `{"a":{"b":{"c":"d"}}}`,
 		},
 	}
 

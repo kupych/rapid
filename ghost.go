@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/chzyer/readline"
 	"github.com/chzyer/readline/runes"
@@ -37,11 +38,19 @@ func (p *GhostPainter) Paint(line []rune, pos int) []rune {
 		return line
 	}
 
-	suffixes, _ := p.completer.Do(line, pos)
-	if len(suffixes) == 0 {
-		return line
+	// Once a CJSON body is open, ghost the closing braces/brackets and the
+	// function paren. The '}'/']' guard keeps endpoint completion working
+	// while only the request paren is open (e.g. typing the path of get(/u).
+	var ghost []rune
+	if closers := closingSuffix(string(line)); strings.ContainsAny(closers, "}]") {
+		ghost = []rune(closers)
+	} else {
+		suffixes, _ := p.completer.Do(line, pos)
+		if len(suffixes) == 0 {
+			return line
+		}
+		ghost = suffixes[0]
 	}
-	ghost := suffixes[0]
 
 	// The cursor-left escape cannot cross rows, so skip the ghost when it
 	// would make the line wrap
@@ -59,4 +68,28 @@ func (p *GhostPainter) Paint(line []rune, pos int) []rune {
 	out = append(out, []rune(CReset)...)
 	out = append(out, []rune(fmt.Sprintf("\033[%dD", runes.WidthAll(ghost)))...)
 	return out
+}
+
+// closingSuffix returns the delimiters needed to balance the unclosed '(',
+// '{' and '[' in s, innermost first, e.g. "get(/x {a[b" -> "])".
+func closingSuffix(s string) string {
+	closer := map[byte]byte{'(': ')', '{': '}', '[': ']'}
+
+	var stack []byte
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(', '{', '[':
+			stack = append(stack, closer[s[i]])
+		case ')', '}', ']':
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+
+	var b strings.Builder
+	for i := len(stack) - 1; i >= 0; i-- {
+		b.WriteByte(stack[i])
+	}
+	return b.String()
 }

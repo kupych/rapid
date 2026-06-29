@@ -466,6 +466,34 @@ func TestGhostPainter(t *testing.T) {
 	if painter.Ghost() != nil || string(out) != "zzz" {
 		t.Errorf("Expected untouched line without matches, got %q", string(out))
 	}
+
+	// An open CJSON body ghosts the closing braces and the function paren
+	line = []rune("post(/x {a{b")
+	painter.Paint(line, len(line))
+	if string(painter.Ghost()) != "}})" {
+		t.Errorf("Expected ghost '}})', got %q", string(painter.Ghost()))
+	}
+}
+
+func TestClosingSuffix(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"post(/x {a{b", "}})"},
+		{"post(/x {a:{b:{c", "}}})"},
+		{"post(/x {tags[a,b", "]})"},
+		{"post(/x {a[{b:{c", "}}]})"},
+		{"get(/u", ")"},
+		{"post(/x {a:1}", ")"},
+		{"get(/x)", ""},
+		{"plain text", ""},
+	}
+	for _, tt := range tests {
+		if got := closingSuffix(tt.input); got != tt.expected {
+			t.Errorf("closingSuffix(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
 }
 
 func TestEndpointStore(t *testing.T) {

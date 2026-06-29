@@ -8,6 +8,7 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/tidwall/gjson"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -83,6 +84,18 @@ func main() {
 			if ghost := painter.Ghost(); len(ghost) > 0 {
 				accepted := append(append([]rune{}, line...), ghost...)
 				return accepted, len(accepted), true
+			}
+		}
+
+		// Typing ')' inside an open CJSON body closes every nested object and
+		// array plus the function call in one stroke. The buffer already holds
+		// the typed ')', so balance the text before it and replace.
+		if key == ')' && pos == len(line) {
+			before := string(line[:pos-1])
+			if closers := closingSuffix(before); strings.ContainsAny(closers, "}]") {
+				rl.Operation.SetBuffer(before + closers)
+				rl.Operation.Refresh()
+				return nil, 0, false
 			}
 		}
 
@@ -744,23 +757,151 @@ Examples:
 `
 }
 
+// parseCJSON expands condensed JSON into real JSON. Objects nest:
+// {a{b{c:d}}} and {a:{b:{c:d}}} both expand to {"a":{"b":{"c":"d"}}}.
+// The colon after a key is optional when its value is a nested object or
+// array. Arrays use brackets: {tags[a,b]} -> {"tags":["a","b"]}. Scalar
+// values are inferred as numbers, bools, or null, with a quoted form
+// ("007") forcing a literal string.
 func parseCJSON(condensed string) string {
-	inner := strings.Trim(condensed, "{}")
+	p := &cjsonParser{input: condensed}
+	jsonBytes, _ := json.Marshal(p.parseValue())
+	return string(jsonBytes)
+}
 
-	pairs := strings.Split(inner, ",")
+type cjsonParser struct {
+	input string
+	pos   int
+}
 
-	body := make(map[string]string)
-	for _, pair := range pairs {
-		parts := strings.SplitN(pair, ":", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			body[key] = value
+func (p *cjsonParser) parseValue() interface{} {
+	p.skipSpace()
+	if p.pos < len(p.input) {
+		switch p.input[p.pos] {
+		case '{':
+			return p.parseObject()
+		case '[':
+			return p.parseArray()
 		}
 	}
+	return inferScalar(p.parseScalar())
+}
 
-	jsonBytes, _ := json.Marshal(body)
-	return string(jsonBytes)
+func (p *cjsonParser) parseObject() map[string]interface{} {
+	obj := make(map[string]interface{})
+	p.pos++ // consume '{'
+	for p.pos < len(p.input) {
+		p.skipSpace()
+		if p.pos >= len(p.input) || p.input[p.pos] == '}' {
+			p.pos++ // consume '}' (or stop at end for unclosed input)
+			break
+		}
+
+		key := p.parseKey()
+		p.skipSpace()
+		if p.pos < len(p.input) && p.input[p.pos] == ':' {
+			p.pos++ // optional colon
+		}
+
+		if key != "" {
+			obj[key] = p.parseValue()
+		}
+
+		p.skipSpace()
+		if p.pos < len(p.input) && p.input[p.pos] == ',' {
+			p.pos++
+		}
+	}
+	return obj
+}
+
+func (p *cjsonParser) parseArray() []interface{} {
+	arr := []interface{}{}
+	p.pos++ // consume '['
+	for p.pos < len(p.input) {
+		p.skipSpace()
+		if p.pos >= len(p.input) || p.input[p.pos] == ']' {
+			p.pos++ // consume ']' (or stop at end for unclosed input)
+			break
+		}
+
+		arr = append(arr, p.parseValue())
+
+		p.skipSpace()
+		if p.pos < len(p.input) && p.input[p.pos] == ',' {
+			p.pos++
+		}
+	}
+	return arr
+}
+
+// parseKey reads up to the next structural character.
+func (p *cjsonParser) parseKey() string {
+	start := p.pos
+	for p.pos < len(p.input) && !strings.ContainsRune(":{[,}]", rune(p.input[p.pos])) {
+		p.pos++
+	}
+	return strings.TrimSpace(p.input[start:p.pos])
+}
+
+// parseScalar reads a value up to the next structural delimiter. A value that
+// begins with a quote (' or ") is read to its matching close quote, so any
+// delimiters inside it are kept; a quote in the middle of a bare word (e.g.
+// O'Brien) is just a character.
+func (p *cjsonParser) parseScalar() string {
+	start := p.pos
+	if p.pos < len(p.input) && (p.input[p.pos] == '"' || p.input[p.pos] == '\'') {
+		quote := p.input[p.pos]
+		p.pos++
+		for p.pos < len(p.input) && p.input[p.pos] != quote {
+			p.pos++
+		}
+		if p.pos < len(p.input) {
+			p.pos++ // consume the closing quote
+		}
+		return strings.TrimSpace(p.input[start:p.pos])
+	}
+
+	for p.pos < len(p.input) && p.input[p.pos] != ',' && p.input[p.pos] != '}' && p.input[p.pos] != ']' {
+		p.pos++
+	}
+	return strings.TrimSpace(p.input[start:p.pos])
+}
+
+func (p *cjsonParser) skipSpace() {
+	for p.pos < len(p.input) && (p.input[p.pos] == ' ' || p.input[p.pos] == '\t') {
+		p.pos++
+	}
+}
+
+// inferScalar maps a raw CJSON scalar to its JSON type. A quoted value (single
+// or double) is taken literally (so "007" or '2' stay strings); otherwise
+// true/false/null and numbers are recognised. Bare digit runs that overflow
+// int64 stay strings rather than lose precision as floats (e.g. long IDs).
+func inferScalar(s string) interface{} {
+	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
+		return s[1 : len(s)-1]
+	}
+
+	switch s {
+	case "true":
+		return true
+	case "false":
+		return false
+	case "null":
+		return nil
+	case "":
+		return ""
+	}
+
+	if strings.ContainsAny(s, ".eE") {
+		if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) {
+			return f
+		}
+	} else if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return i
+	}
+	return s
 }
 
 func detectScheme(url string) string {
