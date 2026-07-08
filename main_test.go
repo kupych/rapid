@@ -178,6 +178,11 @@ func TestParseCJSON(t *testing.T) {
 			input:    "{a{b{c:d",
 			expected: `{"a":{"b":{"c":"d"}}}`,
 		},
+		{
+			name:     "quoted keys pass through",
+			input:    `{"name": "amy", "age": 30}`,
+			expected: `{"age":30,"name":"amy"}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -185,6 +190,66 @@ func TestParseCJSON(t *testing.T) {
 			result := parseCJSON(tt.input)
 			if result != tt.expected {
 				t.Errorf("parseCJSON(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParseBodyVariables(t *testing.T) {
+	variables := map[string]interface{}{
+		"body": "{a{b{c:d}}}",
+		"user": map[string]interface{}{"name": "amy", "age": float64(30)},
+	}
+
+	tests := []struct {
+		name        string
+		input       string
+		wantBody    string
+		wantContent string
+	}{
+		{
+			name:        "bare variable holding CJSON string",
+			input:       "body",
+			wantBody:    `{"a":{"b":{"c":"d"}}}`,
+			wantContent: "application/json",
+		},
+		{
+			name:        "interpolated CJSON string",
+			input:       "${body}",
+			wantBody:    `{"a":{"b":{"c":"d"}}}`,
+			wantContent: "application/json",
+		},
+		{
+			name:        "bare variable holding object",
+			input:       "user",
+			wantBody:    `{"age":30,"name":"amy"}`,
+			wantContent: "application/json",
+		},
+		{
+			name:        "object interpolated inside CJSON",
+			input:       "{profile: ${user}, active: true}",
+			wantBody:    `{"active":true,"profile":{"age":30,"name":"amy"}}`,
+			wantContent: "application/json",
+		},
+		{
+			name:        "bare variable with path",
+			input:       "user.name",
+			wantBody:    "amy",
+			wantContent: "text/plain",
+		},
+		{
+			name:        "unknown bare word stays empty",
+			input:       "nosuchvar",
+			wantBody:    "",
+			wantContent: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, contentType := parseBody(tt.input, variables)
+			if body != tt.wantBody || contentType != tt.wantContent {
+				t.Errorf("parseBody(%q) = %q, %q; want %q, %q", tt.input, body, contentType, tt.wantBody, tt.wantContent)
 			}
 		})
 	}

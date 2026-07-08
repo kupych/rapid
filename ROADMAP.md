@@ -33,14 +33,19 @@
 - [x] Basic auth #v0.4.1
 - [x] Autocomplete engine
 - [x] Learn endpoints from successful requests (per base URL, ID segments -> {id} templates, ~/.rapid)
-- [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
-- [ ] OpenAPI spec auto-discovery
-- [ ] Endpoint autocomplete from spec
-- [ ] Fuzzy endpoint search
 - [x] Ghost text/inline suggestions (right arrow accepts)
 - [x] Bare variable echo: `var`, `var.path`, pipeable; ?v shows truncated previews #v0.5.0
 - [x] Nested CJSON support
 - [x] Type inference
+- [x] CJSON variables usable as request bodies: `post(users body)`, `${var}` expands objects as JSON
+- [x] .rapidvars as startup script: silent REPL commands, @host sections scoped to base URL (legacy JSON still read)
+- [x] `?r` re-runs the startup script (manual auth refresh)
+- [x] Path aliases: `addUser = users/new` then `post(addUser body)`; leading slash forces literal path #v0.7.0
+- [ ] Collapsible response bodies with summary (auto-collapse > 20 lines)
+- [ ] OpenAPI spec auto-discovery
+- [ ] Endpoint autocomplete from spec
+- [ ] Fuzzy endpoint search
+- [ ] Auto re-run startup script on 401 + retry request once (silent refresh)
 - [ ] Syntax highlighting
 - [ ] Response metadata: `$$.status`, `$$.headers`, `$$.time`
 - [ ] GraphQL support: `gql { user(id:123) { name } }`

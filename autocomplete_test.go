@@ -558,7 +558,7 @@ func TestExtractEndpointPath(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := extractEndpointPath(tt.input); got != tt.expected {
+		if got := extractEndpointPath(tt.input, nil); got != tt.expected {
 			t.Errorf("extractEndpointPath(%q) = %q, want %q", tt.input, got, tt.expected)
 		}
 	}

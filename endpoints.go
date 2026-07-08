@@ -124,7 +124,9 @@ func (s *EndpointStore) Save() {
 
 // extractEndpointPath pulls the path out of a request as typed, so
 // `g(users/${id}?limit=10 {a:b})` yields the template "/users/${id}".
-func extractEndpointPath(input string) string {
+// A path that is an alias variable (addUser = users/new) records the
+// alias's value, keeping any ${var} refs raw so they template as {id}.
+func extractEndpointPath(input string, variables map[string]interface{}) string {
 	open := strings.Index(input, "(")
 	close := strings.LastIndex(input, ")")
 	if open == -1 || close <= open {
@@ -139,6 +141,14 @@ func extractEndpointPath(input string) string {
 	path := fields[0]
 	if i := strings.Index(path, "?"); i != -1 {
 		path = path[:i]
+	}
+	if v, ok := variables[path]; ok {
+		if s, isStr := v.(string); isStr {
+			path = s
+			if i := strings.Index(path, "?"); i != -1 {
+				path = path[:i]
+			}
+		}
 	}
 	if len(path) > 1 {
 		path = strings.TrimSuffix(path, "/")

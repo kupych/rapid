@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -59,22 +58,20 @@ func main() {
 	}
 
 	debug := *debugFlag
-	variables, headers := loadVariables(".rapidvars")
 	endpoints := LoadEndpointStore()
-	requestCount := 0
-	responseHistory := []string{}
-	startTime := time.Now()
 	baseURL := args[0]
 	baseURL = detectScheme(baseURL)
-	lastCommand := ""
+
+	session := NewSession(baseURL, make(map[string]interface{}), make(map[string]string), endpoints, debug)
 
 	fmt.Printf("RAPID connected to %s\n", baseURL)
+	runStartupScript(session, ".rapidvars")
 	fmt.Println()
 
 	var rl *readline.Instance
 
 	// Create autocomplete adapter and inline suggestion painter
-	completer := NewReadlineCompleter(&variables, &headers, &responseHistory, endpoints, baseURL)
+	completer := NewReadlineCompleter(&session.variables, &session.headers, &session.responseHistory, endpoints, baseURL)
 	painter := NewGhostPainter(completer, "> ")
 
 	// Listener for command expansion and ghost text acceptance
@@ -179,316 +176,13 @@ func main() {
 		input = strings.TrimSpace(input)
 
 		if input == "!!" {
-			input = lastCommand
+			input = session.lastCommand
 		} else {
-			lastCommand = input
+			session.lastCommand = input
 		}
 
-		switch {
-		case input == "exit" || input == "quit" || input == "q" || input == "x":
+		if !session.Execute(input) {
 			return
-		case input == "?d":
-			debug = !debug
-			if debug {
-				fmt.Println("Debug ON")
-			} else {
-				fmt.Println("Debug OFF")
-			}
-		case input == "?":
-			fmt.Print(showHelp())
-		case strings.HasPrefix(input, "$") && !strings.HasPrefix(input, "$$"):
-			// Parse pipe operator first
-			cleanInput, pipeOp, destination := parsePipeOperator(input)
-			rest := strings.TrimPrefix(cleanInput, "$")
-
-			var historyIndex int
-			var gjsonPath string
-
-			if strings.Contains(rest, ".") {
-				parts := strings.SplitN(rest, ".", 2)
-				if parts[0] == "" {
-					historyIndex = 0
-				} else {
-					var err error
-					historyIndex, err = strconv.Atoi(parts[0])
-					if err != nil {
-						fmt.Println(CRed + "?" + CReset)
-						continue
-					}
-				}
-				gjsonPath = parts[1]
-			} else if rest == "" {
-				historyIndex = 0
-			} else {
-				var err error
-				historyIndex, err = strconv.Atoi(rest)
-				if err != nil {
-					fmt.Println(CRed + "?" + CReset)
-					continue
-				}
-			}
-
-			actualIndex := len(responseHistory) - 1 - historyIndex
-			if actualIndex >= 0 && actualIndex < len(responseHistory) {
-				responseBody := responseHistory[actualIndex]
-				var outputContent string
-
-				if gjsonPath != "" {
-					value := gjson.Get(responseBody, gjsonPath)
-					if value.Exists() {
-						outputContent = value.String()
-						fmt.Println(outputContent)
-					} else {
-						fmt.Println(CRed + "?" + CReset)
-						continue
-					}
-				} else {
-					outputContent = responseBody
-					fmt.Println(outputContent)
-				}
-
-				// Handle pipe if requested
-				if err := handlePipe(outputContent, pipeOp, destination); err != nil {
-					fmt.Printf("%sX %v%s\n", CRed, err, CReset)
-				}
-			} else {
-				fmt.Println(CRed + "?" + CReset)
-			}
-		case input == "?v":
-			if len(variables) == 0 {
-				fmt.Println("{ }")
-				continue
-			}
-			names := make([]string, 0, len(variables))
-			for name := range variables {
-				names = append(names, name)
-			}
-			sort.Strings(names)
-			for _, name := range names {
-				fmt.Printf("%s = %s\n", name, previewValue(variables[name]))
-			}
-		case input == "?h":
-			if len(headers) == 0 {
-				fmt.Println("< >")
-				continue
-			}
-			for name, value := range headers {
-				fmt.Printf("<%s: %v>\n", name, value)
-			}
-		case input == "?hc":
-			headers = make(map[string]string)
-			fmt.Println("< >")
-		case input == "?e":
-			known := endpoints.ForBase(baseURL)
-			if len(known) == 0 {
-				fmt.Println("( )")
-				continue
-			}
-			paths := make([]string, 0, len(known))
-			for path := range known {
-				paths = append(paths, path)
-			}
-			sort.Strings(paths)
-			for _, path := range paths {
-				fmt.Printf("%-40s %s%s%s\n", path, CGray, strings.Join(known[path], ", "), CReset)
-			}
-		case input == "?ec":
-			endpoints.Clear(baseURL)
-			endpoints.Save()
-			fmt.Println("( )")
-		case input == "?s":
-			fmt.Printf("\nSession Info:\n")
-			fmt.Printf("  Base URL: %s\n", baseURL)
-			fmt.Printf("  Headers: %d\n", len(headers))
-			fmt.Printf("  Requests: %d\n", requestCount)
-			fmt.Printf("  Uptime: %s\n", time.Since(startTime).Round(time.Second))
-			fmt.Printf("  Variables: %d\n", len(variables))
-		case strings.HasPrefix(input, "??"):
-			testInput := strings.TrimPrefix(input, "??")
-			if testInput == "" {
-				testInput = lastCommand
-			}
-
-			engine := NewAutocompleteEngine(variables, headers, &responseHistory, endpoints.ForBase(baseURL))
-			suggestions := engine.GetSuggestions(testInput, len(testInput))
-
-			fmt.Printf("Suggestions for '%s':\n", testInput)
-			if len(suggestions) == 0 {
-				fmt.Println("  (none)")
-			}
-			for _, sug := range suggestions {
-				fmt.Printf("  %-20s %s%s%s\n", sug.Display, CGray, sug.Description, CReset)
-			}
-		case strings.HasPrefix(input, "?h "):
-			parts := strings.SplitN(strings.TrimPrefix(input, "?h "), ":", 2)
-			if len(parts) == 2 {
-				name := strings.ToLower(strings.TrimSpace(parts[0]))
-				value := interpolateVars(strings.TrimSpace(parts[1]), variables)
-				headers[name] = value
-				fmt.Printf("<%s: %v>\n", name, value)
-			} else {
-				name := strings.TrimSpace(parts[0])
-				delete(headers, name)
-				fmt.Printf("x <%s>\n", name)
-			}
-		case input == "?vc" || input == "?clear":
-			variables = make(map[string]interface{})
-			fmt.Println("{ }")
-		case strings.HasSuffix(input, "="):
-			parts := strings.SplitN(input, "=", 2)
-			varToClear := strings.TrimSpace(parts[0])
-			delete(variables, varToClear)
-			fmt.Printf("x %s\n", varToClear)
-		case strings.Contains(input, " = "):
-			// Parse pipe operator from full input first
-			cleanInput, pipeOp, destination := parsePipeOperator(input)
-
-			parts := strings.SplitN(cleanInput, " = ", 2)
-			if len(parts) == 2 {
-				varPart := strings.TrimSpace(parts[0])
-				source := strings.TrimSpace(parts[1])
-
-				if strings.HasPrefix(source, "$") && !strings.HasPrefix(source, "$$") {
-					rest := strings.TrimPrefix(source, "$")
-
-					var historyIndex int
-					var gjsonPath string
-
-					if strings.Contains(rest, ".") {
-						parts := strings.SplitN(rest, ".", 2)
-						if parts[0] == "" {
-							historyIndex = 0
-						} else {
-							var err error
-							historyIndex, err = strconv.Atoi(parts[0])
-							if err != nil {
-								fmt.Println(CRed + "?" + CReset)
-								continue
-							}
-						}
-						gjsonPath = parts[1]
-					} else if rest == "" {
-						historyIndex = 0
-					} else {
-						var err error
-						historyIndex, err = strconv.Atoi(rest)
-						if err != nil {
-							fmt.Println(CRed + "?" + CReset)
-							continue
-						}
-					}
-
-					// Get response from history
-					actualIndex := len(responseHistory) - 1 - historyIndex
-					if actualIndex >= 0 && actualIndex < len(responseHistory) {
-						responseBody := responseHistory[actualIndex]
-
-						if gjsonPath == "" {
-							// No path, extract with mapping syntax like {id, name}
-							extractVariables(varPart, responseBody, variables)
-						} else {
-							// Extract specific path
-							value := gjson.Get(responseBody, gjsonPath)
-							if debug {
-								fmt.Printf("DEBUG: path='%s', exists=%v, raw=%v\n", gjsonPath, value.Exists(), value.Raw)
-							}
-							variables[varPart] = value.Value()
-							fmt.Printf("%s = %s\n", varPart, previewValue(value.Value()))
-						}
-					} else {
-						fmt.Println(CRed + "No response at that index" + CReset)
-					}
-					continue
-				} else if isRequest(source) {
-					lastParen := strings.LastIndex(source, ")")
-					if lastParen == -1 {
-						fmt.Println("?")
-						continue
-					}
-
-					requestPart := source[:lastParen+1]
-					pathPart := source[lastParen+1:]
-
-					req, err := NewRequest(requestPart, baseURL, variables, headers, debug)
-					if err != nil {
-						fmt.Println("X", err)
-						continue
-					}
-					response, err := req.Execute(variables, debug)
-					if err != nil {
-						fmt.Println("X", err)
-						continue
-					}
-
-					if response.Status < 400 && endpoints.Add(baseURL, req.Method, extractEndpointPath(requestPart)) {
-						endpoints.Save()
-					}
-
-					if pathPart != "" {
-						pathPart = strings.TrimPrefix(pathPart, ".")
-						value := gjson.Get(response.Body, pathPart)
-						variables[varPart] = value.Value()
-						if debug {
-							fmt.Printf("DEBUG: Extracted %s = %v from path %s\n", varPart, value.Value(), pathPart)
-						}
-					} else {
-						extractVariables(varPart, response.Body, variables)
-					}
-
-					fmt.Println(response.Body)
-					responseHistory = append(responseHistory, response.Body)
-
-					// Handle pipe if requested
-					if err := handlePipe(response.Body, pipeOp, destination); err != nil {
-						fmt.Printf("%sX %v%s\n", CRed, err, CReset)
-					}
-					continue
-				} else {
-					variables[varPart] = source
-					fmt.Printf("%s = %s\n", varPart, source)
-				}
-			} else {
-				fmt.Println("?")
-				continue
-			}
-		case isRequest(input):
-			// Parse pipe operator
-			cleanInput, pipeOp, destination := parsePipeOperator(input)
-
-			req, err := NewRequest(cleanInput, baseURL, variables, headers, debug)
-			if err != nil {
-				fmt.Println("X", err)
-				continue
-			}
-			response, err := req.Execute(variables, debug)
-			if err != nil {
-				fmt.Println("X", err)
-				continue
-			}
-
-			if response.Status < 400 && endpoints.Add(baseURL, req.Method, extractEndpointPath(cleanInput)) {
-				endpoints.Save()
-			}
-
-			fmt.Println(response.Body)
-			responseHistory = append(responseHistory, response.Body)
-
-			// Handle pipe if requested
-			if err := handlePipe(response.Body, pipeOp, destination); err != nil {
-				fmt.Printf("%sX %v%s\n", CRed, err, CReset)
-			}
-		default:
-			// Bare variable name, optionally with a path and pipe: `user.email >`
-			cleanInput, pipeOp, destination := parsePipeOperator(input)
-			output, ok := lookupVariable(cleanInput, variables)
-			if !ok {
-				fmt.Println("?")
-				continue
-			}
-			fmt.Println(output)
-			if err := handlePipe(output, pipeOp, destination); err != nil {
-				fmt.Printf("%sX %v%s\n", CRed, err, CReset)
-			}
 		}
 	}
 }
@@ -636,6 +330,16 @@ func openInEditor(content string) error {
 // lookupVariable resolves a bare variable reference like `user` or
 // `user.address.city`, pretty-printing structured values
 func lookupVariable(input string, variables map[string]interface{}) (string, bool) {
+	value, ok := resolveVariable(input, variables)
+	if !ok {
+		return "", false
+	}
+	return formatVarValue(value), true
+}
+
+// resolveVariable resolves a variable reference, optionally with a gjson path
+// after the name (e.g. "user.address.city"), to its raw value.
+func resolveVariable(input string, variables map[string]interface{}) (interface{}, bool) {
 	name, path := input, ""
 	if i := strings.Index(input, "."); i != -1 {
 		name, path = input[:i], input[i+1:]
@@ -643,22 +347,22 @@ func lookupVariable(input string, variables map[string]interface{}) (string, boo
 
 	value, exists := variables[name]
 	if !exists {
-		return "", false
+		return nil, false
 	}
 
 	if path == "" {
-		return formatVarValue(value), true
+		return value, true
 	}
 
 	jsonBytes, err := json.Marshal(value)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 	result := gjson.GetBytes(jsonBytes, path)
 	if !result.Exists() {
-		return "", false
+		return nil, false
 	}
-	return formatVarValue(result.Value()), true
+	return result.Value(), true
 }
 
 // formatVarValue pretty-prints structured values, scalars come out bare
@@ -728,6 +432,7 @@ $ - Show last response
 ?vc - Clear all variables
 ?e - Show learned endpoints (autocompleted in requests)
 ?ec - Forget learned endpoints for this base URL
+?r - Re-run the .rapidvars startup script (e.g. to refresh auth)
 ??<term> - Preview autocomplete suggestions
 Tab completes, right arrow accepts the inline suggestion
 {varName} = $ - Extract variable from last response
@@ -735,8 +440,23 @@ varName = value - Set variable
 varName = - Clear variable
 varName - Show variable value (pipes work: varName >e)
 varName.path - Drill into object variables
+Vars work as paths and bodies: addUser = users/new, then post(addUser body)
+A leading slash is always literal: g(/users) never resolves variables
 
 exit,quit,q,x - Exit rapid
+
+Startup script (.rapidvars):
+Runs silently when a session starts; any REPL command works.
+Lines before the first @host section run for every session,
+@host sections only when the host matches the base URL.
+A file starting with { is still read as legacy JSON variables.
+
+  # .rapidvars
+  env = staging
+
+  @api.example.com
+  token = post(auth/login {user:stefan, pass:secret}).access_token
+  ?h authorization: Bearer ${token}
 
 Examples:
 
@@ -835,8 +555,24 @@ func (p *cjsonParser) parseArray() []interface{} {
 	return arr
 }
 
-// parseKey reads up to the next structural character.
+// parseKey reads up to the next structural character. A quoted key (' or ")
+// is read to its matching close quote and unwrapped, so interpolated JSON
+// keys like "name": work and delimiters inside quotes are kept.
 func (p *cjsonParser) parseKey() string {
+	if p.pos < len(p.input) && (p.input[p.pos] == '"' || p.input[p.pos] == '\'') {
+		quote := p.input[p.pos]
+		p.pos++
+		start := p.pos
+		for p.pos < len(p.input) && p.input[p.pos] != quote {
+			p.pos++
+		}
+		key := p.input[start:p.pos]
+		if p.pos < len(p.input) {
+			p.pos++ // consume the closing quote
+		}
+		return key
+	}
+
 	start := p.pos
 	for p.pos < len(p.input) && !strings.ContainsRune(":{[,}]", rune(p.input[p.pos])) {
 		p.pos++
@@ -925,17 +661,6 @@ func parseVarNames(vars string) (varList []string) {
 	return parts
 }
 
-func extractVariables(varPart string, response string, variables map[string]interface{}) {
-	mappings := parseVarMappings(varPart)
-	for responseUrl, varName := range mappings {
-		value := gjson.Get(response, responseUrl)
-		if value.Exists() {
-			variables[varName] = value.Value()
-			fmt.Printf("%s = %s\n", varName, previewValue(value.Value()))
-		}
-	}
-}
-
 func parseVarMappings(varPart string) map[string]string {
 	result := make(map[string]string)
 	vars := strings.Trim(varPart, "{}")
@@ -962,12 +687,42 @@ func interpolateVars(path string, variables map[string]interface{}) string {
 		switch v := value.(type) {
 		case string:
 			strValue = v
+		case map[string]interface{}, []interface{}:
+			if jsonBytes, err := json.Marshal(v); err == nil {
+				strValue = string(jsonBytes)
+			} else {
+				strValue = fmt.Sprint(v)
+			}
 		default:
 			strValue = fmt.Sprint(v)
 		}
 		result = strings.ReplaceAll(result, placeholder, strValue)
 	}
 	return result
+}
+
+// resolvePath expands a request path. A path (or the part before the query
+// string) that is exactly the name of a string variable resolves to its
+// value, so endpoints can be aliased: addUser = users/new, then
+// post(addUser {..}). A leading slash forces a literal path — g(/users)
+// never consults variables. ${var} refs are interpolated afterwards, so an
+// alias like users/${id}/posts binds at request time. The second return
+// reports whether an alias fired.
+func resolvePath(path string, variables map[string]interface{}) (string, bool) {
+	base, query := path, ""
+	if i := strings.Index(path, "?"); i != -1 {
+		base, query = path[:i], path[i:]
+	}
+	aliased := false
+	if !strings.HasPrefix(base, "/") {
+		if v, ok := variables[base]; ok {
+			if s, isStr := v.(string); isStr {
+				base = s
+				aliased = true
+			}
+		}
+	}
+	return interpolateVars(base+query, variables), aliased
 }
 
 func isRequest(input string) bool {
@@ -983,8 +738,18 @@ func isRequest(input string) bool {
 		strings.HasPrefix(input, "pu(")
 }
 
-func NewRequest(input string, baseURL string, variables map[string]interface{}, sessionHeaders map[string]string, debug bool) (*Request, error) {
+func NewRequest(input string, baseURL string, variables map[string]interface{}, sessionHeaders map[string]string, debug bool, out io.Writer) (*Request, error) {
 	inlineHeaders, cleanInput := parseInlineHeaders(input)
+
+	// resolve expands the path, echoing a dim note when an alias variable
+	// fired so substitution is never silent.
+	resolve := func(path string) string {
+		resolved, aliased := resolvePath(path, variables)
+		if aliased {
+			fmt.Fprintf(out, "%s→ %s%s\n", CGray, resolved, CReset)
+		}
+		return resolved
+	}
 
 	if debug {
 		fmt.Printf("DEBUG NewRequest: original='%s'\n", input)
@@ -1005,19 +770,19 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 	switch {
 	case strings.HasPrefix(cleanInput, "delete("):
 		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "delete("), ")")
-		path = interpolateVars(path, variables)
+		path = resolve(path)
 		return &Request{Body: "", Headers: headers, Method: "DELETE", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "d("):
 		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "d("), ")")
-		path = interpolateVars(path, variables)
+		path = resolve(path)
 		return &Request{Body: "", Headers: headers, Method: "DELETE", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "get("):
 		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "get("), ")")
-		path = interpolateVars(path, variables)
+		path = resolve(path)
 		return &Request{Body: "", Headers: headers, Method: "GET", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "g("):
 		path := strings.TrimSuffix(strings.TrimPrefix(cleanInput, "g("), ")")
-		path = interpolateVars(path, variables)
+		path = resolve(path)
 		return &Request{Body: "", Headers: headers, Method: "GET", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "post("):
 		pattern := `post\(([^\s]+)(?:\s+(.+))?\)`
@@ -1027,7 +792,7 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 			return nil, fmt.Errorf(CRed + "? ... post(/path {key:val})" + CReset)
 		}
 		path := strings.TrimSpace(matches[1])
-		path = interpolateVars(path, variables)
+		path = resolve(path)
 		bodyPart := matches[2]
 		body, contentType := parseBody(bodyPart, variables)
 		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "POST", Url: buildURL(baseURL, path)}, nil
@@ -1039,7 +804,7 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 			return nil, fmt.Errorf(CRed + "? ... put(/path {key:val})" + CReset)
 		}
 		path := strings.TrimSpace(matches[1])
-		path = interpolateVars(path, variables)
+		path = resolve(path)
 		body, contentType := parseBody(matches[2], variables)
 		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "PUT", Url: buildURL(baseURL, path)}, nil
 	case strings.HasPrefix(cleanInput, "patch("):
@@ -1050,7 +815,7 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 			return nil, fmt.Errorf(CRed + "? ... patch(/path {key:val})" + CReset)
 		}
 		path := strings.TrimSpace(matches[1])
-		path = interpolateVars(path, variables)
+		path = resolve(path)
 		body, contentType := parseBody(matches[2], variables)
 		return &Request{Body: body, ContentType: contentType, Headers: headers, Method: "PATCH", Url: buildURL(baseURL, path)}, nil
 	default:
@@ -1058,7 +823,7 @@ func NewRequest(input string, baseURL string, variables map[string]interface{}, 
 	}
 }
 
-func (r *Request) Execute(variables map[string]interface{}, debug bool) (Response, error) {
+func (r *Request) Execute(variables map[string]interface{}, debug bool, out io.Writer) (Response, error) {
 	var body io.Reader
 	if r.Body != "" {
 		body = strings.NewReader(r.Body)
@@ -1105,7 +870,7 @@ func (r *Request) Execute(variables map[string]interface{}, debug bool) (Respons
 		return Response{}, fmt.Errorf("could not read response body: %w", err)
 	}
 
-	fmt.Printf("%s✓ %d %s (%dms)%s\n", statusColor(resp.StatusCode), resp.StatusCode, http.StatusText(resp.StatusCode), elapsed.Milliseconds(), CReset)
+	fmt.Fprintf(out, "%s✓ %d %s (%dms)%s\n", statusColor(resp.StatusCode), resp.StatusCode, http.StatusText(resp.StatusCode), elapsed.Milliseconds(), CReset)
 
 	var data interface{}
 	if err := json.Unmarshal(respBody, &data); err != nil {
@@ -1149,31 +914,110 @@ func parseBody(bodyPart string, variables map[string]interface{}) (body string, 
 		return parseCJSON(bodyPart), "application/json"
 	}
 
+	// Bare variable name, optionally with a path: post(users body). A string
+	// value holding CJSON expands like an inline body; structured values
+	// (extracted from responses) are sent as JSON directly.
+	if value, ok := resolveVariable(bodyPart, variables); ok {
+		switch v := value.(type) {
+		case map[string]interface{}, []interface{}:
+			if jsonBytes, err := json.Marshal(v); err == nil {
+				return string(jsonBytes), "application/json"
+			}
+		case string:
+			s := strings.TrimSpace(v)
+			if strings.HasPrefix(s, "{") {
+				return parseCJSON(s), "application/json"
+			}
+			return s, "text/plain"
+		default:
+			return fmt.Sprint(v), "text/plain"
+		}
+	}
+
 	return "", ""
 }
 
-func loadVariables(filename string) (map[string]interface{}, map[string]string) {
-	vars := make(map[string]interface{})
-	headers := make(map[string]string)
+// runStartupScript loads .rapidvars into the session. A file starting with
+// '{' keeps its legacy meaning: a JSON object of variables plus $$header:
+// entries. Anything else is a startup script of REPL commands, one per line.
+// Lines before the first @host section run for every session; an @host
+// section runs only when it matches the session base URL. Script commands
+// run silently (errors still print); --debug shows their full output.
+func runStartupScript(s *Session, filename string) {
+	if s.inScript || filename == "" {
+		return
+	}
+	s.inScript = true
+	defer func() { s.inScript = false }()
+	s.scriptFile = filename
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return vars, headers
+		return
 	}
 
-	raw := make(map[string]interface{})
-	json.Unmarshal(data, &raw)
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return
+	}
 
-	for k, v := range raw {
-		if strings.HasPrefix(k, "$$header:") {
-			headerName := strings.TrimPrefix(k, "$$header:")
-			headers[strings.ToLower(headerName)] = fmt.Sprint(v)
-		} else {
-			vars[k] = v
+	if strings.HasPrefix(content, "{") {
+		raw := make(map[string]interface{})
+		if err := json.Unmarshal(data, &raw); err != nil {
+			fmt.Printf("%sX %s: %v%s\n", CRed, filename, err, CReset)
+			return
 		}
-
+		for k, v := range raw {
+			if strings.HasPrefix(k, "$$header:") {
+				headerName := strings.TrimPrefix(k, "$$header:")
+				s.headers[strings.ToLower(headerName)] = fmt.Sprint(v)
+			} else {
+				s.variables[k] = v
+			}
+		}
+		return
 	}
-	return vars, headers
+
+	if !s.debug {
+		prevOut := s.out
+		s.out = io.Discard
+		defer func() { s.out = prevOut }()
+	}
+
+	active := true // global until the first @host section
+	commands := 0
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "@") {
+			active = hostMatches(strings.TrimPrefix(line, "@"), s.baseURL)
+			continue
+		}
+		if !active {
+			continue
+		}
+		commands++
+		if !s.Execute(line) {
+			break
+		}
+	}
+	if commands > 0 {
+		fmt.Printf("%s%s: %d command(s)%s\n", CGray, filename, commands, CReset)
+	}
+}
+
+// hostMatches compares an @section header against the session base URL by
+// host[:port], ignoring scheme and path on either side.
+func hostMatches(section, baseURL string) bool {
+	return strings.EqualFold(hostOf(section), hostOf(baseURL))
+}
+
+func hostOf(url string) string {
+	url = strings.TrimPrefix(url, "https://")
+	url = strings.TrimPrefix(url, "http://")
+	return strings.SplitN(url, "/", 2)[0]
 }
 
 func parseInlineHeaders(input string) (map[string]string, string) {
