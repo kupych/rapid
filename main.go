@@ -891,19 +891,7 @@ func parseBody(bodyPart string, variables map[string]interface{}) (body string, 
 	}
 
 	if strings.HasPrefix(bodyPart, "?") {
-		formData := strings.TrimPrefix(bodyPart, "?")
-
-		values := url.Values{}
-		pairs := strings.Split(formData, "&")
-
-		for _, pair := range pairs {
-			parts := strings.SplitN(pair, "=", 2)
-			if len(parts) == 2 {
-				values.Add(parts[0], parts[1])
-			}
-		}
-
-		return values.Encode(), "application/x-www-form-urlencoded"
+		return encodeFormBody(bodyPart), "application/x-www-form-urlencoded"
 	}
 
 	if strings.HasPrefix(bodyPart, "\"") && strings.HasSuffix(bodyPart, "\"") {
@@ -928,6 +916,9 @@ func parseBody(bodyPart string, variables map[string]interface{}) (body string, 
 			if strings.HasPrefix(s, "{") {
 				return parseCJSON(s), "application/json"
 			}
+			if strings.HasPrefix(s, "?") {
+				return encodeFormBody(s), "application/x-www-form-urlencoded"
+			}
 			return s, "text/plain"
 		default:
 			return fmt.Sprint(v), "text/plain"
@@ -935,6 +926,18 @@ func parseBody(bodyPart string, variables map[string]interface{}) (body string, 
 	}
 
 	return "", ""
+}
+
+// encodeFormBody turns a ?key=val&key2=val2 body into its url-encoded form.
+func encodeFormBody(formData string) string {
+	values := url.Values{}
+	for _, pair := range strings.Split(strings.TrimPrefix(formData, "?"), "&") {
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) == 2 {
+			values.Add(parts[0], parts[1])
+		}
+	}
+	return values.Encode()
 }
 
 // runStartupScript loads .rapidvars into the session. A file starting with

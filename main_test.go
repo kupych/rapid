@@ -197,8 +197,9 @@ func TestParseCJSON(t *testing.T) {
 
 func TestParseBodyVariables(t *testing.T) {
 	variables := map[string]interface{}{
-		"body": "{a{b{c:d}}}",
-		"user": map[string]interface{}{"name": "amy", "age": float64(30)},
+		"body":  "{a{b{c:d}}}",
+		"user":  map[string]interface{}{"name": "amy", "age": float64(30)},
+		"creds": "?username=admin&password=pass",
 	}
 
 	tests := []struct {
@@ -224,6 +225,18 @@ func TestParseBodyVariables(t *testing.T) {
 			input:       "user",
 			wantBody:    `{"age":30,"name":"amy"}`,
 			wantContent: "application/json",
+		},
+		{
+			name:        "bare variable holding form data",
+			input:       "creds",
+			wantBody:    "password=pass&username=admin",
+			wantContent: "application/x-www-form-urlencoded",
+		},
+		{
+			name:        "interpolated form data",
+			input:       "${creds}",
+			wantBody:    "password=pass&username=admin",
+			wantContent: "application/x-www-form-urlencoded",
 		},
 		{
 			name:        "object interpolated inside CJSON",
